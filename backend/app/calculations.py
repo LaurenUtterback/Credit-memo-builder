@@ -1,0 +1,238 @@
+"""
+Financial calculations for the credit memo.
+
+This module is the authoritative home for every underwriting rule. The rules
+were developed carefully and are locked in by tests/test_calculations.py using
+the Alvarado reference deal. Do NOT change a rule here without updating the
+tests to match the intended new behavior.
+
+Underwriting rules encoded here
+-------------------------------
+1.  Taxes are ALWAYS 45% of gross income (salary + other income). Never pulled
+    from documents.
+2.  Ordinary living expenses are ALWAYS 10% of gross income.
+3.  In the Guarantor Analysis cash flow, the Proposed Facility line is the loan
+    PRINCIPAL only.
+4.  On the Personal Financial Statement, the Proposed Facility is loan + interest
+    (the full amount due). Interest comes from the amortization schedule, or
+    falls back to a facility total stated in the documents.
+5.  Net Worth = Total Assets - Total Liabilities. Always calculated, never copied
+    from a stated figure in the documents.
+6.  Total Liabilities includes the Proposed Facility (loan + interest).
+7.  Alimony / child support is a cash-flow item ONLY (Available for Debt). It is
+    never a PFS liability.
+8.  Auto loan balances are never a separate PFS liability row (they live inside
+    "Notes Payable to: others"). Monthly auto PAYMENTS still appear in the cash flow.
+9.  Salary used everywhere is the GUARANTEED portion of compensation only.
+10. LTC (Loan-to-Contract) = loan amount / guaranteed earnings.
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import date
+from typing import Optional
+
+from .models import Extraction, LineItem
+
+
+# --- Row classifiers (mirror the JS regexes exactly) ----------------------
+
+_FACILITY_RE = re.compile(r"proposed\s*facility", re.I)
+_AUTO_RE_A = re.compile(r"\b(auto(mobile)?|vehicle|car)\b.*\b(loan|note|debt|financ)", re.I)
+_AUTO_RE_B = re.compile(r"\b(auto|car)\s*loans?\b", re.I)
+_ALIMONY_RE = re.compile(r"alimony|child\s*support", re.I)
+_COMPUTED_RE_TAX = re.compile(r"\b(income\s*tax|federal.*tax|taxes)\b", re.I)
+_COMPUTED_RE_LIVING = re.compile(r"ordinary\s*living|living\s*expense", re.I)
+
+
+def _label(item) -> str:
+    if item is None:
+        return ""
+    if isinstance(item, dict):
+        return item.get("label") or ""
+    return getattr(item, "label", "") or ""
+
+
+def _amount(item) -> float:
+    if item is None:
+        return 0.0
+    if isinstance(item, dict):
+        return item.get("amount") or 0.0
+    return getattr(item, "amount", 0.0) or 0.0
+
+
+def is_facility_row(item) -> bool:
+    return bool(_FACILITY_RE.search(_label(item)))
+
+
+def is_auto_loan_row(item) -> bool:
+    lbl = _label(item)
+    return bool(_AUTO_RE_A.search(lbl) or _AUTO_RE_B.search(lbl))
+
+
+def is_alimony_row(item) -> bool:
+    return bool(_ALIMONY_RE.search(_label(item)))
+
+
+def is_computed_row(item) -> bool:
+    lbl = _label(item)
+    return bool(_COMPUTED_RE_TAX.search(lbl) or _COMPUTED_RE_LIVING.search(lbl))
+
+
+def _sum(items) -> float:
+    return sum(_amount(i) for i in (items or []))
+
+
+# --- Amortization ----------------------------------------------------------
+
+def calc_amort(principal: float, rate: float, fund_date: date, mat_date: date) -> dict:
+    """Single-payment balloon facility. Interest accrues actual/365.
+
+    Returns interest, balloon (principal + interest), month count, and a row
+    schedule for display.
+    """
+    months = (mat_date.year - fund_date.year) * 12 + (mat_date.month - fund_date.month)
+    days = (mat_date - fund_date).days
+    interest = round(principal * (rate / 100 / 365) * days)
+    balloon = principal + interest
+
+    rows = [{
+        "num": "",
+        "date": f"Funding — {fund_date.strftime('%b %Y')}",
+        "principal": None, "interest": None, "payment": None,
+        "balance": principal, "is_fund": True,
+    }]
+    for i in range(1, months + 1):
+        # advance i months from funding
+        y = fund_date.year + (fund_date.month - 1 + i) // 12
+        m = (fund_date.month - 1 + i) % 12 + 1
+        d = date(y, m, min(fund_date.day, 28))
+        is_balloon = i == months
+        rows.append({
+            "num": i,
+            "date": d.strftime("%-m/%-d/%Y"),
+            "principal": principal if is_balloon else 0,
+            "interest": interest if is_balloon else 0,
+            "payment": balloon if is_balloon else 0,
+            "balance": 0 if is_balloon else principal,
+            "is_balloon": is_balloon,
+        })
+    return {"rows": rows, "interest": interest, "balloon": balloon, "months": months}
+
+
+# --- Facility total --------------------------------------------------------
+
+def facility_total(ed: Optional[Extraction], amort: Optional[dict], loan: float) -> float:
+    """Facility amount due = loan + interest.
+
+    Prefer interest computed from the form's rate/dates. If those aren't set,
+    fall back to a facility total stated in the uploaded documents.
+    """
+    if amort and amort.get("interest", 0) > 0:
+        return (loan or 0) + amort["interest"]
+    if ed and (ed.facility_total_due or 0) > 0:
+        return ed.facility_total_due
+    return loan or 0
+
+
+# --- Balance sheet (PFS) ---------------------------------------------------
+
+def calc_balance_sheet(ed: Optional[Extraction], facility_due: float) -> dict:
+    """Net Worth = Total Assets - Total Liabilities, where liabilities include
+    the proposed facility at loan + interest.
+
+    Excludes from liabilities: the facility itself (added once below), auto-loan
+    rows (folded into Notes Payable to: others), and alimony/child support
+    (a cash-flow item only).
+    """
+    assets_total = _sum(ed.assets if ed else None) or (ed.total_assets if ed else 0) or 0
+
+    liab_items = [
+        l for l in (ed.liabilities if ed else [])
+        if not is_facility_row(l) and not is_auto_loan_row(l) and not is_alimony_row(l)
+    ]
+    stated_liab = _sum(liab_items) or (ed.total_liabilities if ed else 0) or 0
+    total_liab = stated_liab + (facility_due or 0)
+    return {
+        "assets_total": assets_total,
+        "stated_liab": stated_liab,
+        "total_liab": total_liab,
+        "net_worth": assets_total - total_liab,
+        "liab_items": liab_items,
+    }
+
+
+# --- Cash flow (Guarantor Analysis) ---------------------------------------
+
+def build_cash_flow(ed: Optional[Extraction], amort: Optional[dict],
+                    loan: float, form_salary: float) -> dict:
+    salary_income = (ed.salary if ed and ed.salary else 0) or (form_salary or 0)
+    other_income = (ed.other_income if ed else 0) or 0
+    income = salary_income + other_income
+
+    taxes = round(income * 0.45)         # rule 1
+    living = round(income * 0.10)        # rule 2
+    avail = income - taxes - living
+
+    proposed_ds = loan or 0              # rule 3: principal only in cash flow
+
+    debt_items: list[dict] = []
+    if ed:
+        if ed.mortgage_payments:
+            debt_items.append({"label": "Mortgage payments (incl. taxes & ins.)", "amt": ed.mortgage_payments})
+        if ed.auto_payments:
+            debt_items.append({"label": "Automobile payments", "amt": ed.auto_payments})
+        if ed.insurance:
+            debt_items.append({"label": "Insurance (home, health, vehicles)", "amt": ed.insurance})
+
+        # rule 7 sourcing: alimony from the dedicated field, an other-expenses
+        # row, or even a misfiled liabilities row — always surfaced here.
+        alimony_amt = (
+            ed.alimony
+            or _sum([x for x in (ed.other_expenses or []) if is_alimony_row(x)])
+            or _sum([x for x in (ed.liabilities or []) if is_alimony_row(x)])
+        )
+        if alimony_amt:
+            debt_items.append({"label": "Alimony / child support", "amt": alimony_amt})
+
+        if ed.student_loans:
+            debt_items.append({"label": "Student loans", "amt": ed.student_loans})
+        if ed.interest_principal_loans:
+            debt_items.append({"label": "Interest & principal on loans", "amt": ed.interest_principal_loans})
+        if ed.hoa_payments:
+            debt_items.append({"label": "HOA payments", "amt": ed.hoa_payments})
+
+        # Every remaining annual-expenditure item flows in, except the rows we
+        # compute ourselves (taxes/living) and alimony (already added once).
+        for x in (ed.other_expenses or []):
+            if _amount(x) and not is_alimony_row(x) and not is_computed_row(x):
+                debt_items.append({"label": _label(x), "amt": _amount(x)})
+
+    other_debt = sum(d["amt"] for d in debt_items)
+    total_ds = proposed_ds + other_debt
+
+    return {
+        "income": income,
+        "salary_income": salary_income,
+        "other_income": other_income,
+        "taxes": taxes,
+        "living": living,
+        "avail": avail,
+        "proposed_ds": proposed_ds,
+        "debt_items": debt_items,
+        "total_ds": total_ds,
+        "net_cf": avail - total_ds,
+    }
+
+
+def calc_ltc(loan: float, guaranteed_salary: float) -> float:
+    """Loan-to-Contract = loan / guaranteed earnings, as a percentage."""
+    return (loan / guaranteed_salary * 100) if guaranteed_salary else 0.0
+
+
+# --- SSN masking -----------------------------------------------------------
+
+def mask_ssn(value) -> str:
+    digits = re.sub(r"\D", "", str(value or ""))[-4:]
+    return f"XXX-XX-{digits}" if digits else ""
