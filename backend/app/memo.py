@@ -402,8 +402,12 @@ def render_word(html: str) -> bytes:
     word_html = word_html.replace("</head>", word_style + "</head>", 1)
 
     # The repeating footer content: brand on the left, live page numbers right.
+    # display:none keeps this block out of the body flow (otherwise Word renders
+    # it inline too, where the PAGE/NUMPAGES fields can't evaluate and show as a
+    # blank "Page  of "); Word's footer engine still extracts it by id for the
+    # real bottom-margin footer.
     footer_div = (
-        "<div style='mso-element:footer' id='f1'>"
+        "<div style='mso-element:footer;display:none' id='f1'>"
         "<p class=MsoFooter>South River Capital \u2014 Credit Memorandum"
         "<span style='mso-tab-count:1'></span>"
         "Page <span style='mso-field-code:\" PAGE \"'></span> of "

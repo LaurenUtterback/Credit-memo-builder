@@ -488,6 +488,9 @@ def test_word_export_has_repeating_page_footer(alvarado):
     assert 'id=\'f1\'' in doc
     assert 'mso-field-code:" PAGE "' in doc
     assert 'mso-field-code:" NUMPAGES "' in doc
+    # the footer-definition block is display:none so Word doesn't ALSO render it
+    # inline in the body (where PAGE/NUMPAGES can't evaluate -> blank "Page of")
+    assert "mso-element:footer;display:none" in doc
     # the in-body (PDF/screen) footers are suppressed so they don't double up
     assert ".pg-footer{display:none !important;}" in doc
     # and the hard-coded "Page N of 6" is no longer the footer source
