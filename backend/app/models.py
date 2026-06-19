@@ -93,6 +93,7 @@ class Extraction(BaseModel):
     total_liabilities: float = 0.0
     net_worth: float = 0.0            # captured but NOT used (recomputed)
     facility_total_due: float = 0.0
+    loan_term_months: int = 0         # term of the proposed facility, in whole months
 
     # The loan's repayment schedule as it appears in the uploaded documents.
     # Empty when the documents contain no schedule (Section X then computes one).

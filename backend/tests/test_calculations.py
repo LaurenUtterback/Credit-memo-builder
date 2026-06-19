@@ -353,6 +353,47 @@ def test_ssn_masking(raw, expected):
     assert calc.mask_ssn(raw) == expected
 
 
+# --- Loan term (Section II Action Request) --------------------------------
+
+def test_loan_term_months_prefers_document_term():
+    # The term stated in the documents wins over the funding-to-maturity span.
+    ed = Extraction(loan_term_months=6)
+    assert calc.loan_term_months(ed, {"months": 12}) == 6
+
+
+def test_loan_term_months_falls_back_to_date_span():
+    # No stated term -> use the amortization schedule's month count.
+    ed = Extraction(loan_term_months=0)
+    assert calc.loan_term_months(ed, {"months": 9}) == 9
+    # also when there's no extraction at all
+    assert calc.loan_term_months(None, {"months": 9}) == 9
+
+
+def test_loan_term_months_zero_when_unknown():
+    assert calc.loan_term_months(None, None) == 0
+    assert calc.loan_term_months(Extraction(), {"months": 0}) == 0
+
+
+def test_render_shows_document_term_without_dates():
+    # Term sheet says 6 months; no funding/maturity dates entered. Section II
+    # must still state the 6-month term sourced from the documents.
+    ed = Extraction(loan_term_months=6)
+    terms = DealTerms(name="Test Borrower", loan=4_435_000, rate=13.5, salary=9_000_000)
+    html = memo_service.render_html(terms, ed, [])
+    assert "<strong>6</strong>-month full balloon loan" in html
+
+
+def test_render_document_term_overrides_date_span():
+    # Even with dates that span 12 months, the stated 6-month term is used.
+    ed = Extraction(loan_term_months=6)
+    terms = DealTerms(
+        name="Test Borrower", loan=4_435_000, rate=13.5, salary=9_000_000,
+        fund=date(2026, 1, 1), mat=date(2027, 1, 1),
+    )
+    html = memo_service.render_html(terms, ed, [])
+    assert "<strong>6</strong>-month full balloon loan" in html
+
+
 # --- Memo rendering smoke test --------------------------------------------
 
 def test_render_html_contains_key_figures(alvarado):

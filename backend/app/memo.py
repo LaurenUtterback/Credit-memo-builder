@@ -272,7 +272,7 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "mat_fmt": _fmt_long(terms.mat),
         "md_fmt": _fmt_short(date.today()),
         "loan_type": terms.loan_type,
-        "months": amort_for_tpl["months"],
+        "months": calc.loan_term_months(ed, amort),
         "loan_money": _money(loan),
         "salary_money": _money(salary),
         "interest_money": _money(amort_for_tpl["interest"]),

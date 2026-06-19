@@ -34,6 +34,9 @@ Underwriting rules encoded here
     subtotals are always recomputed from the lines, never copied. When the
     documents carry no breakdown, it falls back to gross loan less the
     origination fee from the deal terms.
+13. The loan term in months (Section II Action Request) prefers the term stated
+    in the documents (a term sheet's "Term: N months"); it falls back to the
+    funding-to-maturity span used for the amortization schedule.
 """
 
 from __future__ import annotations
@@ -196,6 +199,21 @@ def facility_total(ed: Optional[Extraction], amort: Optional[dict], loan: float)
     if ed and (ed.facility_total_due or 0) > 0:
         return ed.facility_total_due
     return loan or 0
+
+
+def loan_term_months(ed: Optional[Extraction], amort: Optional[dict]) -> int:
+    """Number of months the lender provides the loan, for the Section II
+    Action Request.
+
+    Prefers the term stated in the deal documents (a term sheet's
+    "Term: N months"); falls back to the funding-to-maturity span computed for
+    the amortization schedule. Returns 0 when neither is available.
+    """
+    if ed and (ed.loan_term_months or 0) > 0:
+        return int(ed.loan_term_months)
+    if amort and (amort.get("months") or 0) > 0:
+        return int(amort["months"])
+    return 0
 
 
 # --- Balance sheet (PFS) ---------------------------------------------------

@@ -67,6 +67,10 @@ never silently.
     breakdown in the documents it falls back to gross loan less the origination
     fee from the deal terms. Captured by `uses_of_funds` (extraction.py) and
     rendered by `calc_uses_of_funds` / `_uses_of_funds_html`.
+15. The loan term in months (Section II Action Request) prefers the term stated
+    in the documents (a term sheet's "Term: N months"), falling back to the
+    funding-to-maturity span. Captured by `loan_term_months` (extraction.py) and
+    resolved by `calc.loan_term_months`.
 
 The Alvarado reference deal: $12,267,600 assets, $10,373,361 total liabilities,
 $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.
