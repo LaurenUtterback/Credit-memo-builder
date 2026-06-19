@@ -135,6 +135,36 @@ def _pfs_html(ed: Extraction | None, facility_due: float, salary: float) -> str:
     return "".join(out)
 
 
+def _uses_of_funds_html(uof: dict) -> str:
+    """Render Section VI's disbursement waterfall from calc.calc_uses_of_funds.
+
+    Gross Loan Amount, each deduction shown as a parenthesized reduction, the
+    "To be disbursed to Borrower" subtotal, then (when the documents provide
+    them) the additional costs carved out of that figure and the final "Net to
+    be Disbursed to Borrower". Mirrors South River's standard disbursement table.
+    """
+    out = [
+        f'<tr class="total"><td>Gross Loan Amount</td>'
+        f'<td class="num-col">{_money(uof["gross"])}</td></tr>'
+    ]
+    for d in uof["deductions"]:
+        out.append(f'<tr><td>{d["label"]}</td>'
+                   f'<td class="num-col">({_money(d["amount"])})</td></tr>')
+    out.append(
+        f'<tr class="total"><td><em>To be disbursed to Borrower (Est)</em></td>'
+        f'<td class="num-col"><em>{_money(uof["to_borrower"])}</em></td></tr>'
+    )
+    if uof["additional_costs"]:
+        for a in uof["additional_costs"]:
+            out.append(f'<tr><td>{a["label"]}</td>'
+                       f'<td class="num-col">{_money(a["amount"])}</td></tr>')
+        out.append(
+            f'<tr class="grand"><td>Net to be Disbursed to Borrower (Est)</td>'
+            f'<td class="num-col">{_money(uof["net_to_borrower"])}</td></tr>'
+        )
+    return "".join(out)
+
+
 def _repayment_html(rows: list[dict], totals: dict) -> str:
     """Render Section X's repayment table — one row per scheduled payment
     (Payment | Date | Interest | Principal | Total) followed by a totals row.
@@ -194,6 +224,7 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
     cf = calc.build_cash_flow(ed, amort, loan, salary)
     facility_due = calc.facility_total(ed, amort, loan)
     ltc = calc.calc_ltc(loan, salary)
+    uof = calc.calc_uses_of_funds(ed.uses_of_funds if ed else None, loan, fee)
 
     amort_for_tpl = amort or {"rows": [], "interest": 0, "balloon": 0, "months": 0}
 
@@ -238,7 +269,6 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "rate": rate,
         "fee": fee,
         "fee_amt": _money(loan * fee / 100) if loan and fee else "[Fee]",
-        "net_borrower": _money(loan - loan * fee / 100) if loan and fee else "[Net]",
         "mat_fmt": _fmt_long(terms.mat),
         "md_fmt": _fmt_short(date.today()),
         "loan_type": terms.loan_type,
@@ -256,6 +286,7 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "contract_notes": ed.contract_notes if ed else "",
         "contract_text": ed.contract_notes if ed else "",
         "cf_html": _cf_rows_html(cf),
+        "uses_html": _uses_of_funds_html(uof),
         "pfs_html": _pfs_html(ed, facility_due, salary),
         "repayment_html": _repayment_html(rep_rows, rep_totals),
         "doc_list_html": _doc_list_html(filenames),

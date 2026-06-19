@@ -12,7 +12,9 @@ from datetime import date
 
 import pytest
 
-from app.models import Extraction, LineItem, DealTerms
+from app.models import (
+    Extraction, LineItem, DealTerms, UsesOfFunds, DisbursementItem,
+)
 from app import calculations as calc
 from app import memo as memo_service
 
@@ -114,6 +116,98 @@ def test_taxes_are_not_a_pfs_liability():
     # taxes excluded -> only the mortgage counts
     assert bs["total_liab"] == 50_000
     assert bs["net_worth"] == 50_000
+
+
+# --- Uses of Funds (disbursement waterfall) -------------------------------
+
+def test_uses_of_funds_full_breakdown_from_documents():
+    # The example disbursement table: every line provided is carried through,
+    # and the two subtotals foot to the lines.
+    uof = UsesOfFunds(
+        gross_loan_amount=4_435_000,
+        deductions=[
+            DisbursementItem(label="Lender Origination Fee (Est)", amount=133_050),
+            DisbursementItem(label="SS Underwriting Fee (Est)", amount=133_050),
+            DisbursementItem(label="BMO Payments thru 6/15/27 (Est)", amount=3_709_235),
+            DisbursementItem(label="Legal/Closing Costs (Est)", amount=16_165),
+        ],
+        additional_costs=[
+            DisbursementItem(label="Death & Disgrace Insurance (Est)", amount=110_875),
+            DisbursementItem(label="Interest Reserve (Est)", amount=332_625),
+        ],
+    )
+    r = calc.calc_uses_of_funds(uof, loan=4_435_000, fee_pct=3)
+    assert r["gross"] == 4_435_000
+    assert [d["label"] for d in r["deductions"]] == [
+        "Lender Origination Fee (Est)", "SS Underwriting Fee (Est)",
+        "BMO Payments thru 6/15/27 (Est)", "Legal/Closing Costs (Est)",
+    ]
+    assert r["to_borrower"] == 443_500       # gross − Σ deductions
+    assert [a["label"] for a in r["additional_costs"]] == [
+        "Death & Disgrace Insurance (Est)", "Interest Reserve (Est)",
+    ]
+    assert r["net_to_borrower"] == 0         # to_borrower − Σ additional_costs
+
+
+def test_uses_of_funds_subtotals_are_recomputed_not_copied():
+    # Even if a single deduction changes, the subtotals follow the lines.
+    uof = UsesOfFunds(
+        gross_loan_amount=1_000_000,
+        deductions=[DisbursementItem(label="Origination Fee", amount=20_000)],
+        additional_costs=[DisbursementItem(label="Interest Reserve", amount=80_000)],
+    )
+    r = calc.calc_uses_of_funds(uof, loan=1_000_000, fee_pct=2)
+    assert r["to_borrower"] == 980_000
+    assert r["net_to_borrower"] == 900_000
+
+
+def test_uses_of_funds_drops_zero_lines():
+    uof = UsesOfFunds(
+        gross_loan_amount=500_000,
+        deductions=[
+            DisbursementItem(label="Origination Fee", amount=10_000),
+            DisbursementItem(label="Empty line", amount=0),
+        ],
+    )
+    r = calc.calc_uses_of_funds(uof, loan=500_000, fee_pct=2)
+    assert [d["label"] for d in r["deductions"]] == ["Origination Fee"]
+    assert r["to_borrower"] == 490_000
+
+
+def test_uses_of_funds_falls_back_to_deal_terms():
+    # No disbursement breakdown in the documents -> gross loan less the
+    # origination fee from the deal terms, so Section VI is never empty.
+    r = calc.calc_uses_of_funds(None, loan=2_499_000, fee_pct=2)
+    assert r["gross"] == 2_499_000
+    assert len(r["deductions"]) == 1
+    assert r["deductions"][0]["label"] == "Origination Fee (2%)"
+    assert r["deductions"][0]["amount"] == 49_980
+    assert r["to_borrower"] == 2_449_020
+    assert r["additional_costs"] == []
+
+
+def test_render_html_contains_uses_of_funds_lines():
+    ed = Extraction(
+        uses_of_funds=UsesOfFunds(
+            gross_loan_amount=4_435_000,
+            deductions=[
+                DisbursementItem(label="Lender Origination Fee (Est)", amount=133_050),
+                DisbursementItem(label="BMO Payments thru 6/15/27 (Est)", amount=3_709_235),
+            ],
+            additional_costs=[
+                DisbursementItem(label="Interest Reserve (Est)", amount=332_625),
+            ],
+        ),
+    )
+    terms = DealTerms(name="Test Borrower", loan=4_435_000, salary=9_000_000)
+    html = memo_service.render_html(terms, ed, [])
+    assert "Gross Loan Amount" in html
+    assert "Lender Origination Fee (Est)" in html
+    assert "BMO Payments thru 6/15/27 (Est)" in html
+    assert "($3,709,235)" in html                       # deduction shown in parens
+    assert "To be disbursed to Borrower (Est)" in html
+    assert "Interest Reserve (Est)" in html
+    assert "Net to be Disbursed to Borrower (Est)" in html
 
 
 # --- Cash flow (Guarantor Analysis) ---------------------------------------

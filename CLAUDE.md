@@ -60,6 +60,13 @@ never silently.
 13. Taxes are NEVER a PFS liability. Even when the PFS reports an estimated tax
     figure (e.g. "Taxes (Est of 35% of ...)"), it is excluded from Total
     Liabilities and from Net Worth.
+14. Section VI (Uses of Funds) reproduces EVERY disbursement line provided in the
+    documents (fees, payoffs, closing costs, insurance, interest reserve, ...).
+    The "To be disbursed to Borrower" and "Net to be Disbursed to Borrower"
+    subtotals are always recomputed from the lines, never copied. With no
+    breakdown in the documents it falls back to gross loan less the origination
+    fee from the deal terms. Captured by `uses_of_funds` (extraction.py) and
+    rendered by `calc_uses_of_funds` / `_uses_of_funds_html`.
 
 The Alvarado reference deal: $12,267,600 assets, $10,373,361 total liabilities,
 $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.

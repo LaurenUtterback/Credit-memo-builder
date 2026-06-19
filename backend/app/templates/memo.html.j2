@@ -77,8 +77,8 @@ ul.tight{margin:3pt 0 7pt;padding-left:18pt;}ul.tight li{margin-bottom:3pt;}
 <section class="section"><h2 class="sec"><span class="num">V</span>Project Sponsorship</h2><p class="lead">{{ sponsor_text }}</p>{% if contract_text %}<p class="note-fine">{{ contract_text }}</p>{% endif %}</section>
 <section class="section"><h2 class="sec"><span class="num">VI</span>Uses of Funds</h2>
 <p>The funds are being used for off-season training and business expenses.</p>
-<table><thead><tr><th>Disbursement</th><th class="num-col">Amount</th></tr></thead><tbody><tr><td>Loan Amount</td><td class="num-col">{{ loan_money }}</td></tr><tr><td>Origination Fee ({{ fee }}%)</td><td class="num-col">({{ fee_amt }})</td></tr><tr class="grand"><td>Net to Borrower (before additional costs)</td><td class="num-col">{{ net_borrower }}</td></tr></tbody></table>
-<p class="note-fine">Complete each line with the actual disbursement amounts for the specific transaction.</p></section>
+<table><thead><tr><th>Disbursement</th><th class="num-col">Amount</th></tr></thead><tbody>{{ uses_html }}</tbody></table>
+<p class="note-fine">Disbursement amounts are estimates sourced from the deal documents; confirm against the final settlement statement.</p></section>
 <section class="section"><h2 class="sec"><span class="num">VII</span>Contract Analysis</h2>
 {% if contract_notes %}<p>{{ contract_notes }}</p>{% endif %}
 <p>{{ name }} has a fully guaranteed season salary of <strong>{{ salary_money }}</strong> with the {{ team }}. The guaranteed season salary serves as the sole underwriting basis for this facility.</p>

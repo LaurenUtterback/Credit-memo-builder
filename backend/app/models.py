@@ -18,6 +18,30 @@ class LineItem(BaseModel):
     amount: float = 0.0
 
 
+class DisbursementItem(BaseModel):
+    """One line in the Section VI disbursement / Uses-of-Funds waterfall."""
+    label: str
+    amount: float = 0.0
+
+
+class UsesOfFunds(BaseModel):
+    """The disbursement waterfall as the deal documents present it (Section VI).
+
+    ``gross_loan_amount`` is the full proposed facility. ``deductions`` are the
+    fees and payoffs taken out of the gross loan to reach the amount "to be
+    disbursed to Borrower" (origination/underwriting fees, payoffs of existing
+    loans, legal/closing costs, etc.). ``additional_costs`` are amounts funded
+    from the loan and carved out of the to-Borrower figure to reach the NET
+    disbursed (e.g. Death & Disgrace insurance premium, Interest Reserve).
+
+    All amounts are positive dollar magnitudes; the subtotals (to-Borrower, net)
+    are always recomputed from these lines, never copied from the documents.
+    """
+    gross_loan_amount: float = 0.0
+    deductions: list[DisbursementItem] = Field(default_factory=list)
+    additional_costs: list[DisbursementItem] = Field(default_factory=list)
+
+
 class RepaymentRow(BaseModel):
     """One scheduled payment in the loan's repayment/amortization schedule.
 
@@ -73,6 +97,11 @@ class Extraction(BaseModel):
     # The loan's repayment schedule as it appears in the uploaded documents.
     # Empty when the documents contain no schedule (Section X then computes one).
     repayment_schedule: list[RepaymentRow] = Field(default_factory=list)
+
+    # The disbursement / Uses-of-Funds breakdown from the documents (Section VI).
+    # None when the documents carry no breakdown (Section VI then falls back to a
+    # gross-loan/origination-fee table built from the deal terms).
+    uses_of_funds: Optional[UsesOfFunds] = None
 
     credit_notes: Optional[str] = None
     contract_notes: Optional[str] = None

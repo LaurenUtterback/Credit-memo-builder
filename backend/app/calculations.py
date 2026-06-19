@@ -28,6 +28,12 @@ Underwriting rules encoded here
 11. Taxes are NEVER a PFS liability. Even when the Personal Financial Statement
     reports an estimated tax figure (e.g. "Taxes (Est of 35% of ...)"), it is
     excluded from Total Liabilities and from Net Worth.
+12. Section VI (Uses of Funds) reproduces EVERY disbursement line provided in the
+    documents (fees, payoffs, closing costs, insurance, interest reserve, ...).
+    The "To be disbursed to Borrower" and "Net to be Disbursed to Borrower"
+    subtotals are always recomputed from the lines, never copied. When the
+    documents carry no breakdown, it falls back to gross loan less the
+    origination fee from the deal terms.
 """
 
 from __future__ import annotations
@@ -218,6 +224,49 @@ def calc_balance_sheet(ed: Optional[Extraction], facility_due: float) -> dict:
         "total_liab": total_liab,
         "net_worth": assets_total - total_liab,
         "liab_items": liab_items,
+    }
+
+
+# --- Uses of Funds (disbursement waterfall) -------------------------------
+
+def calc_uses_of_funds(uof, loan: float, fee_pct: float) -> dict:
+    """Build the Section VI disbursement waterfall.
+
+    Prefers the disbursement breakdown captured from the uploaded documents so
+    EVERY line provided (origination/underwriting fees, payoffs, closing costs,
+    insurance, interest reserve, ...) appears on the memo. The two subtotals are
+    ALWAYS recomputed from the line items, never copied from the documents
+    (consistent with rule 5 — totals are calculated):
+
+        to_borrower     = gross loan − Σ deductions
+        net_to_borrower = to_borrower − Σ additional_costs
+
+    Falls back to a gross-loan / origination-fee table built from the deal terms
+    when the documents carry no breakdown, so Section VI is never empty.
+
+    ``uof`` is a UsesOfFunds (or None). All input amounts are positive
+    magnitudes; zero-amount lines are dropped.
+    """
+    if uof and (uof.gross_loan_amount or uof.deductions or uof.additional_costs):
+        gross = uof.gross_loan_amount or (loan or 0)
+        deductions = [{"label": _label(d), "amount": _amount(d)}
+                      for d in uof.deductions if _amount(d)]
+        additional = [{"label": _label(a), "amount": _amount(a)}
+                      for a in uof.additional_costs if _amount(a)]
+    else:
+        gross = loan or 0
+        fee_amt = round(gross * (fee_pct or 0) / 100)
+        deductions = [{"label": f"Origination Fee ({fee_pct:g}%)", "amount": fee_amt}] if fee_amt else []
+        additional = []
+
+    to_borrower = gross - sum(d["amount"] for d in deductions)
+    net_to_borrower = to_borrower - sum(a["amount"] for a in additional)
+    return {
+        "gross": gross,
+        "deductions": deductions,
+        "to_borrower": to_borrower,
+        "additional_costs": additional,
+        "net_to_borrower": net_to_borrower,
     }
 
 
