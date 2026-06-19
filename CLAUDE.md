@@ -57,6 +57,9 @@ never silently.
 10. LTC (Loan-to-Contract) = loan amount / guaranteed earnings.
 11. The memo must NOT contain the phrase "general business purposes".
 12. SSN/Tax ID is only ever stored/shown as the last 4 digits (XXX-XX-1234).
+13. Taxes are NEVER a PFS liability. Even when the PFS reports an estimated tax
+    figure (e.g. "Taxes (Est of 35% of ...)"), it is excluded from Total
+    Liabilities and from Net Worth.
 
 The Alvarado reference deal: $12,267,600 assets, $10,373,361 total liabilities,
 $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.

@@ -25,6 +25,9 @@ Underwriting rules encoded here
     "Notes Payable to: others"). Monthly auto PAYMENTS still appear in the cash flow.
 9.  Salary used everywhere is the GUARANTEED portion of compensation only.
 10. LTC (Loan-to-Contract) = loan amount / guaranteed earnings.
+11. Taxes are NEVER a PFS liability. Even when the Personal Financial Statement
+    reports an estimated tax figure (e.g. "Taxes (Est of 35% of ...)"), it is
+    excluded from Total Liabilities and from Net Worth.
 """
 
 from __future__ import annotations
@@ -78,6 +81,10 @@ def is_alimony_row(item) -> bool:
 def is_computed_row(item) -> bool:
     lbl = _label(item)
     return bool(_COMPUTED_RE_TAX.search(lbl) or _COMPUTED_RE_LIVING.search(lbl))
+
+
+def is_tax_row(item) -> bool:
+    return bool(_COMPUTED_RE_TAX.search(_label(item)))
 
 
 def _sum(items) -> float:
@@ -192,14 +199,16 @@ def calc_balance_sheet(ed: Optional[Extraction], facility_due: float) -> dict:
     the proposed facility at loan + interest.
 
     Excludes from liabilities: the facility itself (added once below), auto-loan
-    rows (folded into Notes Payable to: others), and alimony/child support
-    (a cash-flow item only).
+    rows (folded into Notes Payable to: others), alimony/child support
+    (a cash-flow item only), and tax rows (never a PFS liability, even when the
+    Personal Financial Statement reports an estimated tax figure).
     """
     assets_total = _sum(ed.assets if ed else None) or (ed.total_assets if ed else 0) or 0
 
     liab_items = [
         l for l in (ed.liabilities if ed else [])
-        if not is_facility_row(l) and not is_auto_loan_row(l) and not is_alimony_row(l)
+        if not is_facility_row(l) and not is_auto_loan_row(l)
+        and not is_alimony_row(l) and not is_tax_row(l)
     ]
     stated_liab = _sum(liab_items) or (ed.total_liabilities if ed else 0) or 0
     total_liab = stated_liab + (facility_due or 0)

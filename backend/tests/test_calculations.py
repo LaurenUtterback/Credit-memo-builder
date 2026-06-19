@@ -96,6 +96,26 @@ def test_auto_loan_balance_excluded_from_pfs():
     assert bs["total_liab"] == 303_095
 
 
+def test_taxes_are_not_a_pfs_liability():
+    # rule 11: the PFS may report an estimated tax figure, but it is never a
+    # liability and never reduces Net Worth.
+    ed = Extraction(
+        assets=[LineItem(label="Cash", amount=100_000)],
+        total_assets=100_000,
+        liabilities=[
+            LineItem(label="Mortgage Debt", amount=50_000),
+            LineItem(label="Taxes (Est of 35% of Gtd NHL Contract Remaining)",
+                     amount=13_825_000),
+        ],
+    )
+    bs = calc.calc_balance_sheet(ed, 0)
+    labels = [l.label for l in bs["liab_items"]]
+    assert not any("Taxes" in lbl for lbl in labels)
+    # taxes excluded -> only the mortgage counts
+    assert bs["total_liab"] == 50_000
+    assert bs["net_worth"] == 50_000
+
+
 # --- Cash flow (Guarantor Analysis) ---------------------------------------
 
 def test_taxes_are_45_percent_of_gross(alvarado):
