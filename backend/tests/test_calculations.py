@@ -479,19 +479,27 @@ def test_word_export_has_repeating_page_footer(alvarado):
     html = memo_service.render_html(terms, alvarado, ["PFS.pdf"])
     doc = memo_service.render_word(html).decode("utf-8")
 
-    # Word's native footer mechanism: a named section whose bottom margin holds
-    # an mso-element:footer block with live page-number fields.
+    # Packaged as MHTML so the footer can live in its own part (never inline).
+    assert doc.startswith("MIME-Version: 1.0")
+    assert "multipart/related" in doc
+    assert doc.count("Content-Location:") == 2          # main.htm + footer.htm
+    assert "Content-Location: file:///C:/memo/footer.htm" in doc
+
+    # The named section's bottom margin pulls in the separate footer part.
     assert "@page WordSection1" in doc
-    assert "mso-footer:f1" in doc
+    assert 'mso-footer:url("footer.htm") f1' in doc
     assert "<div class=WordSection1>" in doc
+
+    # The footer block (in its own part) carries live PAGE / NUMPAGES fields and
+    # is NOT display:none (that dropped it entirely in some Word versions).
     assert "mso-element:footer" in doc
+    assert "mso-element:footer;display:none" not in doc
     assert 'id=\'f1\'' in doc
     assert 'mso-field-code:" PAGE "' in doc
     assert 'mso-field-code:" NUMPAGES "' in doc
-    # the footer-definition block is display:none so Word doesn't ALSO render it
-    # inline in the body (where PAGE/NUMPAGES can't evaluate -> blank "Page of")
-    assert "mso-element:footer;display:none" in doc
-    # the in-body (PDF/screen) footers are suppressed so they don't double up
-    assert ".pg-footer{display:none !important;}" in doc
-    # and the hard-coded "Page N of 6" is no longer the footer source
     assert "South River Capital — Credit Memorandum" in doc
+
+    # the in-body (PDF/screen) footers are still suppressed so they don't show
+    assert ".pg-footer{display:none !important;}" in doc
+    # no stray UTF-8 replacement chars (em dash etc. encoded cleanly)
+    assert "�" not in doc

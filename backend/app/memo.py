@@ -360,63 +360,98 @@ def render_pdf(html: str) -> bytes:
     return pdf
 
 
-def render_word(html: str) -> bytes:
-    """Wrap the memo HTML so Microsoft Word opens it as a .doc with formatting.
+_OFFICE_NS = (
+    " xmlns:o='urn:schemas-microsoft-com:office:office'"
+    " xmlns:w='urn:schemas-microsoft-com:office:word'"
+    " xmlns='http://www.w3.org/TR/REC-html40'"
+)
 
-    Word can't use the footer the PDF relies on (the absolutely-positioned
-    in-body ``.pg-footer`` and Chromium's page-margin footer), so it gets a real
-    repeating page footer through Word's own HTML mechanism: an
-    ``mso-element:footer`` block referenced by ``@page WordSection1`` via
-    ``mso-footer``. Word then draws it in the bottom margin of EVERY printed
-    page, with live PAGE / NUMPAGES fields instead of the template's hard-coded
-    "Page N of 6". The in-body ``.pg-footer`` rows are hidden in Word so they
-    don't double up or land mid-page. The PDF path is unaffected.
+# Shared style for the footer paragraph (used in both the main and footer parts).
+_MSO_FOOTER_STYLE = (
+    "p.MsoFooter,li.MsoFooter,div.MsoFooter{margin:0;font-family:Arial,Helvetica,sans-serif;"
+    "font-size:6.8pt;letter-spacing:.1em;color:#8a8a8a;text-transform:uppercase;"
+    "border-top:.75pt solid #cdd3da;padding-top:4pt;tab-stops:right 7.3in;}"
+)
+
+# The repeating footer: brand on the left, live PAGE / NUMPAGES fields on the right.
+_MSO_FOOTER_PARAGRAPH = (
+    "<p class=MsoFooter>South River Capital \u2014 Credit Memorandum"
+    "<span style='mso-tab-count:1'></span>"
+    "Page <span style='mso-field-code:\" PAGE \"'></span> of "
+    "<span style='mso-field-code:\" NUMPAGES \"'></span></p>"
+)
+
+
+def render_word(html: str) -> bytes:
+    """Package the memo as an MHTML (Web Archive) ``.doc`` so Microsoft Word
+    shows a real repeating page footer at the bottom of every page.
+
+    Word can't use the footer the PDF relies on. A single-file HTML ``.doc`` is a
+    dead end here: an inline ``mso-element:footer`` div either leaks into the body
+    (a blank "Page  of " above the real footer, because the fields only evaluate
+    in the footer region) or, when hidden with ``display:none``, is dropped
+    entirely. So we mirror what Word itself does on "Save as Single File Web
+    Page": ship the footer in a SEPARATE MHTML part referenced by
+    ``@page WordSection1`` via ``mso-footer:url(...)``. Living outside the body,
+    it never renders inline, and its live PAGE / NUMPAGES fields give correct
+    per-page numbers. The PDF path is unaffected.
     """
-    # Office namespaces so Word interprets the mso-* directives.
-    word_html = html.replace(
-        '<html lang="en">',
-        "<html lang=\"en\" xmlns:o='urn:schemas-microsoft-com:office:office' "
-        "xmlns:w='urn:schemas-microsoft-com:office:word' "
-        "xmlns='http://www.w3.org/TR/REC-html40'>",
-        1,
-    ).replace(
-        "<head>",
-        "<head><!--[if gte mso 9]><xml><w:WordDocument>"
-        "<w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->",
-        1,
+    meta = (
+        "<head><meta name=ProgId content=Word.Document>"
+        "<meta name=Generator content=\"Microsoft Word\">"
+        "<!--[if gte mso 9]><xml><w:WordDocument>"
+        "<w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->"
     )
 
-    # Define a named Word section whose bottom margin holds a repeating footer,
-    # and suppress the template's in-body footers.
+    # Named Word section whose bottom margin holds the footer (in footer.htm),
+    # and a rule that suppresses the template's in-body .pg-footer rows.
     word_style = (
         "<style>"
         "@page WordSection1{size:8.5in 11.0in;margin:0.6in 0.6in 0.6in 0.6in;"
-        "mso-header-margin:0.5in;mso-footer-margin:0.3in;mso-footer:f1;mso-paper-source:0;}"
+        "mso-header-margin:0.5in;mso-footer-margin:0.3in;"
+        "mso-footer:url(\"footer.htm\") f1;mso-paper-source:0;}"
         "div.WordSection1{page:WordSection1;}"
-        "p.MsoFooter,li.MsoFooter,div.MsoFooter{margin:0;font-family:Arial,Helvetica,sans-serif;"
-        "font-size:6.8pt;letter-spacing:.1em;color:#8a8a8a;text-transform:uppercase;"
-        "border-top:.75pt solid #cdd3da;padding-top:4pt;tab-stops:right 7.3in;}"
+        + _MSO_FOOTER_STYLE +
         ".pg-footer{display:none !important;}"
         "</style>"
     )
-    word_html = word_html.replace("</head>", word_style + "</head>", 1)
 
-    # The repeating footer content: brand on the left, live page numbers right.
-    # display:none keeps this block out of the body flow (otherwise Word renders
-    # it inline too, where the PAGE/NUMPAGES fields can't evaluate and show as a
-    # blank "Page  of "); Word's footer engine still extracts it by id for the
-    # real bottom-margin footer.
-    footer_div = (
-        "<div style='mso-element:footer;display:none' id='f1'>"
-        "<p class=MsoFooter>South River Capital \u2014 Credit Memorandum"
-        "<span style='mso-tab-count:1'></span>"
-        "Page <span style='mso-field-code:\" PAGE \"'></span> of "
-        "<span style='mso-field-code:\" NUMPAGES \"'></span></p>"
-        "</div>"
+    main = (
+        html.replace('<html lang="en">', f'<html lang="en"{_OFFICE_NS}>', 1)
+            .replace("<head>", meta, 1)
+            .replace("</head>", word_style + "</head>", 1)
+    )
+    main = re.sub(r"(<body[^>]*>)", r"\1<div class=WordSection1>", main, count=1)
+    main = main.replace("</body>", "</div></body>", 1)
+
+    # The footer lives in its own part so it never appears in the body flow.
+    footer_part = (
+        f"<html{_OFFICE_NS}><head>"
+        "<meta http-equiv=Content-Type content=\"text/html; charset=utf-8\">"
+        "<style>" + _MSO_FOOTER_STYLE + "</style></head><body>"
+        "<div style='mso-element:footer' id='f1'>" + _MSO_FOOTER_PARAGRAPH + "</div>"
+        "</body></html>"
     )
 
-    # Wrap all body content in the Word section, then append the footer block.
-    word_html = re.sub(r"(<body[^>]*>)", r"\1<div class=WordSection1>", word_html, count=1)
-    word_html = word_html.replace("</body>", footer_div + "</div></body>", 1)
-
-    return ("\ufeff" + word_html).encode("utf-8")
+    # Assemble the MHTML container. footer.htm resolves relative to main.htm, so
+    # the @page mso-footer:url("footer.htm") points at the second part.
+    boundary = "----=_NextPart_SouthRiverCreditMemo"
+    mhtml = (
+        "MIME-Version: 1.0\r\n"
+        f'Content-Type: multipart/related; boundary="{boundary}"; type="text/html"\r\n'
+        "\r\n"
+        f"--{boundary}\r\n"
+        "Content-Location: file:///C:/memo/main.htm\r\n"
+        "Content-Transfer-Encoding: 8bit\r\n"
+        'Content-Type: text/html; charset="utf-8"\r\n'
+        "\r\n"
+        f"{main}\r\n"
+        f"--{boundary}\r\n"
+        "Content-Location: file:///C:/memo/footer.htm\r\n"
+        "Content-Transfer-Encoding: 8bit\r\n"
+        'Content-Type: text/html; charset="utf-8"\r\n'
+        "\r\n"
+        f"{footer_part}\r\n"
+        f"--{boundary}--\r\n"
+    )
+    return mhtml.encode("utf-8")
