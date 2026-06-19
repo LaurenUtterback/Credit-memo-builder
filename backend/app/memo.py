@@ -361,15 +361,58 @@ def render_pdf(html: str) -> bytes:
 
 
 def render_word(html: str) -> bytes:
-    """Wrap the memo HTML so Microsoft Word opens it as a .doc with formatting."""
+    """Wrap the memo HTML so Microsoft Word opens it as a .doc with formatting.
+
+    Word can't use the footer the PDF relies on (the absolutely-positioned
+    in-body ``.pg-footer`` and Chromium's page-margin footer), so it gets a real
+    repeating page footer through Word's own HTML mechanism: an
+    ``mso-element:footer`` block referenced by ``@page WordSection1`` via
+    ``mso-footer``. Word then draws it in the bottom margin of EVERY printed
+    page, with live PAGE / NUMPAGES fields instead of the template's hard-coded
+    "Page N of 6". The in-body ``.pg-footer`` rows are hidden in Word so they
+    don't double up or land mid-page. The PDF path is unaffected.
+    """
+    # Office namespaces so Word interprets the mso-* directives.
     word_html = html.replace(
+        '<html lang="en">',
+        "<html lang=\"en\" xmlns:o='urn:schemas-microsoft-com:office:office' "
+        "xmlns:w='urn:schemas-microsoft-com:office:word' "
+        "xmlns='http://www.w3.org/TR/REC-html40'>",
+        1,
+    ).replace(
         "<head>",
         "<head><!--[if gte mso 9]><xml><w:WordDocument>"
         "<w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->",
         1,
-    ).replace(
-        "</head>",
-        "<style>@page{size:8.5in 11in;margin:0.6in;}</style></head>",
-        1,
     )
+
+    # Define a named Word section whose bottom margin holds a repeating footer,
+    # and suppress the template's in-body footers.
+    word_style = (
+        "<style>"
+        "@page WordSection1{size:8.5in 11.0in;margin:0.6in 0.6in 0.6in 0.6in;"
+        "mso-header-margin:0.5in;mso-footer-margin:0.3in;mso-footer:f1;mso-paper-source:0;}"
+        "div.WordSection1{page:WordSection1;}"
+        "p.MsoFooter,li.MsoFooter,div.MsoFooter{margin:0;font-family:Arial,Helvetica,sans-serif;"
+        "font-size:6.8pt;letter-spacing:.1em;color:#8a8a8a;text-transform:uppercase;"
+        "border-top:.75pt solid #cdd3da;padding-top:4pt;tab-stops:right 7.3in;}"
+        ".pg-footer{display:none !important;}"
+        "</style>"
+    )
+    word_html = word_html.replace("</head>", word_style + "</head>", 1)
+
+    # The repeating footer content: brand on the left, live page numbers right.
+    footer_div = (
+        "<div style='mso-element:footer' id='f1'>"
+        "<p class=MsoFooter>South River Capital \u2014 Credit Memorandum"
+        "<span style='mso-tab-count:1'></span>"
+        "Page <span style='mso-field-code:\" PAGE \"'></span> of "
+        "<span style='mso-field-code:\" NUMPAGES \"'></span></p>"
+        "</div>"
+    )
+
+    # Wrap all body content in the Word section, then append the footer block.
+    word_html = re.sub(r"(<body[^>]*>)", r"\1<div class=WordSection1>", word_html, count=1)
+    word_html = word_html.replace("</body>", footer_div + "</div></body>", 1)
+
     return ("\ufeff" + word_html).encode("utf-8")

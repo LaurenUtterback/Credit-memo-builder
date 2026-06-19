@@ -466,3 +466,29 @@ def test_render_html_contains_key_figures(alvarado):
     assert "Proposed Facility" in html
     # the general-business-purposes verbiage must stay removed
     assert "general business purposes" not in html
+
+
+# --- Word export footer ----------------------------------------------------
+
+def test_word_export_has_repeating_page_footer(alvarado):
+    terms = DealTerms(
+        name="José Alvarado", team="Pelicans", league="NBA", sport="basketball",
+        loan=ALVARADO_LOAN, rate=12, fee=2, salary=ALVARADO_SALARY,
+        fund=date(2026, 1, 1), mat=date(2027, 1, 1),
+    )
+    html = memo_service.render_html(terms, alvarado, ["PFS.pdf"])
+    doc = memo_service.render_word(html).decode("utf-8")
+
+    # Word's native footer mechanism: a named section whose bottom margin holds
+    # an mso-element:footer block with live page-number fields.
+    assert "@page WordSection1" in doc
+    assert "mso-footer:f1" in doc
+    assert "<div class=WordSection1>" in doc
+    assert "mso-element:footer" in doc
+    assert 'id=\'f1\'' in doc
+    assert 'mso-field-code:" PAGE "' in doc
+    assert 'mso-field-code:" NUMPAGES "' in doc
+    # the in-body (PDF/screen) footers are suppressed so they don't double up
+    assert ".pg-footer{display:none !important;}" in doc
+    # and the hard-coded "Page N of 6" is no longer the footer source
+    assert "South River Capital — Credit Memorandum" in doc
