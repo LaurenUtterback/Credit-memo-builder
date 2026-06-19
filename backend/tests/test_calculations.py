@@ -171,6 +171,51 @@ def test_amort_interest_actual_365():
     assert amort["months"] == 12
 
 
+# --- Repayment schedule (Section X display) --------------------------------
+
+def test_repayment_schedule_interest_monthly_principal_balloon():
+    # Interest paid every month; principal repaid as a single balloon at the end.
+    sched = calc.calc_repayment_schedule(4_435_000, 15.0, date(2026, 6, 15), date(2026, 12, 15))
+    monthly = round(4_435_000 * 0.15 / 12)   # 55,438
+
+    assert sched["months"] == 6
+    assert len(sched["rows"]) == 6
+    assert monthly == 55_438
+    # interest is paid in every period
+    assert all(r["interest"] == monthly for r in sched["rows"])
+    # principal appears only on the final (balloon) payment
+    assert [r["principal"] for r in sched["rows"]] == [0, 0, 0, 0, 0, 4_435_000]
+    assert sched["rows"][-1]["is_balloon"] is True
+    # totals foot to the displayed rows
+    assert sched["total_interest"] == monthly * 6
+    assert sched["total_principal"] == 4_435_000
+    assert sched["total_payment"] == monthly * 6 + 4_435_000
+    # payments run on the 15th, July through December 2026
+    assert sched["rows"][0]["date"] == "15-Jul-26"
+    assert sched["rows"][-1]["date"] == "15-Dec-26"
+
+
+def test_repayment_schedule_uses_documents_when_present(alvarado):
+    # When the extraction carries a schedule, the memo reproduces THOSE rows
+    # verbatim rather than computing its own.
+    from app.models import RepaymentRow
+    alvarado.repayment_schedule = [
+        RepaymentRow(date="15-Jul-26", interest=55_438, principal=0, total=55_438),
+        RepaymentRow(date="15-Aug-26", interest=55_438, principal=4_435_000, total=4_490_438),
+    ]
+    terms = DealTerms(
+        name="José Alvarado", loan=ALVARADO_LOAN, rate=15, fee=2, salary=ALVARADO_SALARY,
+        fund=date(2026, 6, 15), mat=date(2026, 8, 15),
+    )
+    html = memo_service.render_html(terms, alvarado, [])
+    assert "15-Jul-26" in html and "15-Aug-26" in html
+    assert "$4,490,438" in html      # a document row's total, copied through
+    assert "$4,545,876" in html      # totals row = sum of the document's rows
+    # the computed fallback (monthly interest on the 2,499,000 loan) must NOT run
+    computed_monthly = round(ALVARADO_LOAN * 0.15 / 12)  # 31,238
+    assert f"${computed_monthly:,}" not in html
+
+
 # --- LTC -------------------------------------------------------------------
 
 def test_ltc_is_loan_over_guaranteed_earnings():

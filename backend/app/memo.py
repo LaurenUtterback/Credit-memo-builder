@@ -27,6 +27,24 @@ _env = Environment(
     autoescape=select_autoescape(enabled_extensions=()),  # template is trusted HTML
 )
 
+# PDF page furniture. Chromium draws these in the page MARGIN (not the body), so
+# the footer can never overlap content, and its <span class="pageNumber"> /
+# <span class="totalPages"> tokens are filled with the real, correct page numbers
+# for however many physical pages the deal happens to span. The in-body
+# ``.pg-footer`` is hidden in print (see @media print in memo.html.j2) so it does
+# not double up. An empty header template suppresses Chromium's default
+# date/title header.
+_PDF_HEADER_TEMPLATE = "<div></div>"
+_PDF_FOOTER_TEMPLATE = (
+    '<div style="width:100%;box-sizing:border-box;padding:0 0.75in;margin:0;'
+    'font-family:Arial,Helvetica,sans-serif;font-size:8px;line-height:1;'
+    'letter-spacing:0.08em;color:#8a8a8a;text-transform:uppercase;'
+    'display:flex;justify-content:space-between;align-items:center;">'
+    "<span>South River Capital &mdash; Credit Memorandum</span>"
+    '<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>'
+    "</div>"
+)
+
 
 def _money(n) -> str:
     if n is None:
@@ -47,7 +65,9 @@ def _signed(n) -> str:
 
 
 def _fmt_long(d: date | None) -> str:
-    return d.strftime("%B %-d, %Y") if d else "[Maturity Date]"
+    # Build the no-leading-zero day from the date's integer fields instead of the
+    # glibc/BSD-only "%-d" strftime code, which raises ValueError on Windows.
+    return f"{d.strftime('%B')} {d.day}, {d.year}" if d else "[Maturity Date]"
 
 
 def _fmt_short(d: date | None) -> str:
@@ -115,21 +135,32 @@ def _pfs_html(ed: Extraction | None, facility_due: float, salary: float) -> str:
     return "".join(out)
 
 
-def _amort_html(amort: dict) -> str:
+def _repayment_html(rows: list[dict], totals: dict) -> str:
+    """Render Section X's repayment table — one row per scheduled payment
+    (Payment | Date | Interest | Principal | Total) followed by a totals row.
+
+    ``rows`` come from the uploaded documents when present, otherwise from
+    calc.calc_repayment_schedule. An empty schedule yields a placeholder row.
+    """
+    if not rows:
+        return ('<tr><td colspan="5" style="text-align:center;color:#777">'
+                'Repayment schedule unavailable — include it in the uploaded '
+                'documents, or set the loan amount, rate, and funding/maturity '
+                'dates.</td></tr>')
     out = []
-    for r in amort["rows"]:
-        cls = "grand" if r.get("is_balloon") else ""
-        def cell(v):
-            if v is None:
-                return "—"
-            return _money(v) if r.get("is_balloon") else "$0"
+    for r in rows:
         out.append(
-            f'<tr class="{cls}"><td>{r["num"]}</td><td>{r["date"]}</td>'
-            f'<td class="num-col">{cell(r["principal"])}</td>'
-            f'<td class="num-col">{cell(r["interest"])}</td>'
-            f'<td class="num-col">{cell(r["payment"])}</td>'
-            f'<td class="num-col">{_money(r["balance"])}</td></tr>'
+            f'<tr><td>{r["num"]}</td><td>{r["date"]}</td>'
+            f'<td class="num-col">{_money(r["interest"])}</td>'
+            f'<td class="num-col">{_money(r["principal"])}</td>'
+            f'<td class="num-col">{_money(r["total"])}</td></tr>'
         )
+    out.append(
+        f'<tr class="total"><td></td><td></td>'
+        f'<td class="num-col">{_money(totals.get("total_interest", 0))}</td>'
+        f'<td class="num-col">{_money(totals.get("total_principal", 0))}</td>'
+        f'<td class="num-col">{_money(totals.get("total_payment", 0))}</td></tr>'
+    )
     return "".join(out)
 
 
@@ -166,6 +197,32 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
 
     amort_for_tpl = amort or {"rows": [], "interest": 0, "balloon": 0, "months": 0}
 
+    # Section X repayment schedule: prefer the schedule captured from the uploaded
+    # documents; otherwise compute one (interest paid monthly, principal balloon)
+    # from the deal terms. Empty when neither is available -> placeholder row.
+    if ed and ed.repayment_schedule:
+        rep_rows = [
+            {
+                "num": i + 1,
+                "date": r.date or "—",
+                "interest": r.interest,
+                "principal": r.principal,
+                "total": r.total or (r.interest + r.principal),
+            }
+            for i, r in enumerate(ed.repayment_schedule)
+        ]
+        rep_totals = {
+            "total_interest": sum(r["interest"] for r in rep_rows),
+            "total_principal": sum(r["principal"] for r in rep_rows),
+            "total_payment": sum(r["total"] for r in rep_rows),
+        }
+    elif terms.fund and terms.mat and loan and rate:
+        rep_sched = calc.calc_repayment_schedule(loan, rate, terms.fund, terms.mat)
+        rep_rows = rep_sched["rows"]
+        rep_totals = rep_sched
+    else:
+        rep_rows, rep_totals = [], {}
+
     context = {
         "logo": _LOGO_PATH.read_text().strip(),
         "name": terms.name or "[Borrower Name]",
@@ -200,7 +257,7 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "contract_text": ed.contract_notes if ed else "",
         "cf_html": _cf_rows_html(cf),
         "pfs_html": _pfs_html(ed, facility_due, salary),
-        "amort_html": _amort_html(amort_for_tpl),
+        "repayment_html": _repayment_html(rep_rows, rep_totals),
         "doc_list_html": _doc_list_html(filenames),
     }
 
@@ -208,15 +265,49 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
 
 
 def render_pdf(html: str) -> bytes:
-    """Render the memo HTML to PDF using WeasyPrint."""
+    """Render the memo HTML to PDF using headless Chromium via Playwright.
+
+    Chromium's print engine honors the template's own ``@page`` rules and
+    ``@media print`` CSS, so the PDF matches the on-screen preview. Playwright
+    ships its own browser (installed once with ``python -m playwright install
+    chromium``), so no system GTK/Pango/Cairo libraries are required — which is
+    why this replaced WeasyPrint, whose native deps aren't available on Windows.
+    """
     try:
-        from weasyprint import HTML  # imported lazily; heavy native dep
-    except ImportError as exc:  # pragma: no cover
+        from playwright.sync_api import sync_playwright  # imported lazily; heavy dep
+    except ImportError as exc:
         raise RuntimeError(
-            "WeasyPrint is not installed or its system libraries are missing. "
-            "See backend/README for setup, or use the browser print-to-PDF route."
+            "PDF export needs Playwright. Install it with: "
+            "pip install playwright  then  python -m playwright install chromium"
         ) from exc
-    return HTML(string=html).write_pdf()
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            try:
+                page = browser.new_page()
+                page.set_content(html, wait_until="load")
+                # Letter size with explicit margins so Chromium reserves the bottom
+                # margin for the native footer (display_header_footer). print_background
+                # keeps the navy/gold styling. The footer template carries the real
+                # "Page X of N" so numbering is always correct, and lives in the margin
+                # so it never prints over the body. Margins match the template's @page.
+                pdf = page.pdf(
+                    format="Letter",
+                    print_background=True,
+                    display_header_footer=True,
+                    header_template=_PDF_HEADER_TEMPLATE,
+                    footer_template=_PDF_FOOTER_TEMPLATE,
+                    margin={"top": "0.7in", "bottom": "0.6in", "left": "0.75in", "right": "0.75in"},
+                )
+            finally:
+                browser.close()
+    except Exception as exc:  # browser missing, launch failure, render error
+        raise RuntimeError(
+            "PDF rendering failed. If this is the first run, install the browser "
+            "with: python -m playwright install chromium"
+        ) from exc
+    return pdf
 
 
 def render_word(html: str) -> bytes:

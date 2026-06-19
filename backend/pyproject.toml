@@ -11,10 +11,11 @@ dependencies = [
     "anthropic>=0.40",
     "python-multipart>=0.0.9",
     "python-dotenv>=1.0",
-    # WeasyPrint enables server-side PDF rendering. It needs system libraries
-    # (pango, cairo). See backend/README.md. If you can't install it, the API
-    # returns a clear 501 and the frontend falls back to browser print-to-PDF.
-    "weasyprint>=61",
+    # PDF rendering uses Playwright's headless Chromium, whose print engine
+    # honors the memo template's @page / @media print CSS and needs no system
+    # GTK/Pango/Cairo libraries (WeasyPrint couldn't load those on Windows).
+    # After install, fetch the browser once:  python -m playwright install chromium
+    "playwright>=1.40",
 ]
 
 [project.optional-dependencies]

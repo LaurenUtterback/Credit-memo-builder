@@ -40,11 +40,11 @@ ul.tight{margin:3pt 0 7pt;padding-left:18pt;}ul.tight li{margin-bottom:3pt;}
 .note-fine{font-size:8.5pt;color:var(--ink-soft);}
 .pg-footer{position:absolute;left:.75in;right:.75in;bottom:.42in;display:flex;justify-content:space-between;align-items:center;font-family:Arial,Helvetica,sans-serif;font-size:6.8pt;letter-spacing:.1em;color:#8a8a8a;text-transform:uppercase;border-top:.75pt solid var(--rule);padding-top:5pt;}
 @page{size:letter;margin:.7in .75in .6in;}
-@media print{body{background:none;padding:0;}.page{width:auto;min-height:0;margin:0;padding:0;box-shadow:none;border-radius:0;break-after:page;}.page:last-child{break-after:auto;}.pg-footer{position:fixed;left:0;right:0;bottom:.28in;border-top:none;}.section,.faq,.src,.callout,tr,thead{break-inside:avoid;}h2.sec,h3.sub{break-after:avoid;}th,td,thead th,tbody tr.grand td,.brand .brand-logo,.doc-meta .conf,h2.sec .num,.src{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+@media print{body{background:none;padding:0;}.page{width:auto;min-height:0;margin:0;padding:0;box-shadow:none;border-radius:0;break-after:page;}.page:last-child{break-after:auto;}.pg-footer{display:none;}.section,.faq,.src,.callout,tr,thead{break-inside:avoid;}h2.sec,h3.sub{break-after:avoid;}th,td,thead th,tbody tr.grand td,.brand .brand-logo,.doc-meta .conf,h2.sec .num,.src{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
 </style></head>
 <body style="background-color:rgba(255,255,253,0.98)">
 <div class="page">
-<header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="conf">Confidential</div><div class="dt">Memo Date: <span>{{ md_fmt }}</span></div></div></header>
+<header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Memo Date: <span>{{ md_fmt }}</span></div></div></header>
 <div class="doc-title"><div class="kicker">South River Capital</div><h1>Credit Memorandum</h1></div>
 <table class="kv two"><tbody>
 <tr><td class="k">Borrower</td><td>{{ name }}</td><td class="k">Lending Area</td><td>{{ league }}</td></tr>
@@ -98,9 +98,9 @@ ul.tight{margin:3pt 0 7pt;padding-left:18pt;}ul.tight li{margin-bottom:3pt;}
 </div>
 <div class="page">
 <section class="section"><h2 class="sec"><span class="num">X</span>Repayment &amp; Amortization</h2>
-<p>Interest accrues and is paid, together with principal, at the balloon maturity.</p>
-<table class="zebra"><thead><tr><th style="width:30px">#</th><th>Payment Date</th><th class="num-col">Principal</th><th class="num-col">Interest</th><th class="num-col">Payment</th><th class="num-col">Balance</th></tr></thead><tbody>{{ amort_html }}</tbody></table>
-<p class="note-fine">Interest at {{ rate }}% p.a. on {{ loan_money }} over ~{{ months }} months ({{ interest_money }}). Full balloon due at maturity via payroll sweep. UCC-1 filed against contract receivable to secure first-lien position.</p></section>
+<p>Interest is paid monthly; the principal is repaid as a single balloon at maturity.</p>
+<table class="zebra"><thead><tr><th style="width:52px">Payment</th><th>Date</th><th class="num-col">Interest</th><th class="num-col">Principal</th><th class="num-col">Total</th></tr></thead><tbody>{{ repayment_html }}</tbody></table>
+<p class="note-fine">Repayment schedule per the deal documents. Interest at {{ rate }}% p.a. on {{ loan_money }}; principal due as a balloon at maturity via payroll sweep. UCC-1 filed against contract receivable to secure first-lien position.</p></section>
 <section class="section"><h2 class="sec"><span class="num">XI</span>Repayment Sources</h2>
 <div class="src-grid"><div class="src"><div class="lab">Primary</div><div class="ord">Source</div><p style="margin:0">Professional contract salary.</p></div><div class="src"><div class="lab">Secondary</div><div class="ord">Source</div><p style="margin:0">Personal guarantee of the Borrower, including confession of judgment and consent to wage garnishment.</p></div><div class="src"><div class="lab">Tertiary</div><div class="ord">Source</div><p style="margin:0">DDD insurance policy (Exceptional Risk Advisors / Lloyd's of London) assigned to Lender.</p></div></div></section>
 <div class="pg-footer"><span>South River Capital — Credit Memorandum</span><span>Page 5 of 6</span></div>
@@ -109,8 +109,6 @@ ul.tight{margin:3pt 0 7pt;padding-left:18pt;}ul.tight li{margin-bottom:3pt;}
 <section class="section"><h2 class="sec"><span class="num">XII</span>Supporting Documentation</h2>
 <p>The following supporting documentation is available upon request.</p>
 <table class="kv"><tbody>{{ doc_list_html }}</tbody></table>
-<h3 class="sub">Approvals</h3>
-<table class="kv"><tbody><tr><td class="k">Reviewed by</td><td>_______________________________ &nbsp;—&nbsp; Date: _______________</td></tr><tr><td class="k">Approved by</td><td>_______________________________ &nbsp;—&nbsp; Date: _______________</td></tr></tbody></table>
 <p class="note-fine" style="margin-top:14pt">This memorandum is prepared solely for the internal credit evaluation of South River Capital and its participation lenders. All information is derived from executed loan documents, third-party credit reports, and borrower-provided financial statements on file. This document is <strong>confidential</strong> and intended only for authorized recipients.</p></section>
 <div class="pg-footer"><span>South River Capital — Credit Memorandum</span><span>Page 6 of 6</span></div>
 </div>

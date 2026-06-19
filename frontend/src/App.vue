@@ -12,7 +12,7 @@ const terms = reactive({
   name: '', dob: '', addr: '', phone: '', team: '', league: '', sport: '',
   ssn: '', dl: '', agent: '',
   loan: null, rate: null, fee: null, salary: null,
-  fund: '', mat: '', loan_type: 'Single-Pay Balloon',
+  fund: '', mat: '', loan_type: 'New Loan',
 })
 
 const memoReady = ref(false)
@@ -115,6 +115,14 @@ async function exportWord() {
         <label>Sport <input v-model="terms.sport" /></label>
         <label>Guaranteed salary <input v-model.number="terms.salary" type="number" /></label>
         <label>Loan amount <input v-model.number="terms.loan" type="number" /></label>
+        <label>Loan type
+          <select v-model="terms.loan_type">
+            <option>Refinance / Modification</option>
+            <option>New Loan</option>
+            <option>Contract Advance</option>
+            <option>Bridge Loan</option>
+          </select>
+        </label>
         <label>Rate (% p.a.) <input v-model.number="terms.rate" type="number" step="0.01" /></label>
         <label>Origination fee (%) <input v-model.number="terms.fee" type="number" step="0.01" /></label>
         <label>Funding date <input v-model="terms.fund" type="date" /></label>
@@ -154,7 +162,7 @@ body { margin: 0; background: #eceae3; font-family: system-ui, sans-serif; color
 .step { background: var(--navy); color: #fff; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; }
 .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 label { display: flex; flex-direction: column; font-size: 12px; gap: 4px; color: #555; }
-input { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; }
+input, select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; background: #fff; }
 button { background: var(--navy); color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; margin-right: 8px; margin-top: 8px; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 button.ghost { background: #fff; color: var(--navy); border: 1px solid var(--navy); }

@@ -18,6 +18,19 @@ class LineItem(BaseModel):
     amount: float = 0.0
 
 
+class RepaymentRow(BaseModel):
+    """One scheduled payment in the loan's repayment/amortization schedule.
+
+    Captured from the uploaded documents when present (see extraction.py); the
+    memo's Section X reproduces these rows verbatim. ``total`` is that payment's
+    interest + principal and may be left 0 to be computed at render time.
+    """
+    date: str = ""                    # payment date as shown, e.g. "15-Jul-26"
+    interest: float = 0.0
+    principal: float = 0.0
+    total: float = 0.0
+
+
 class Extraction(BaseModel):
     """Structured data pulled from uploaded documents by Claude.
 
@@ -57,6 +70,10 @@ class Extraction(BaseModel):
     net_worth: float = 0.0            # captured but NOT used (recomputed)
     facility_total_due: float = 0.0
 
+    # The loan's repayment schedule as it appears in the uploaded documents.
+    # Empty when the documents contain no schedule (Section X then computes one).
+    repayment_schedule: list[RepaymentRow] = Field(default_factory=list)
+
     credit_notes: Optional[str] = None
     contract_notes: Optional[str] = None
     sponsorship_narrative: Optional[str] = None
@@ -81,7 +98,7 @@ class DealTerms(BaseModel):
     salary: float = 0.0               # guaranteed season salary
     fund: Optional[date] = None       # funding date
     mat: Optional[date] = None        # maturity date
-    loan_type: str = "Single-Pay Balloon"
+    loan_type: str = "New Loan"
 
 
 class MemoRequest(BaseModel):

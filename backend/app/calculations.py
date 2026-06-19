@@ -111,7 +111,8 @@ def calc_amort(principal: float, rate: float, fund_date: date, mat_date: date) -
         is_balloon = i == months
         rows.append({
             "num": i,
-            "date": d.strftime("%-m/%-d/%Y"),
+            # integer fields, not the glibc-only "%-m/%-d" codes (ValueError on Windows)
+            "date": f"{d.month}/{d.day}/{d.year}",
             "principal": principal if is_balloon else 0,
             "interest": interest if is_balloon else 0,
             "payment": balloon if is_balloon else 0,
@@ -119,6 +120,54 @@ def calc_amort(principal: float, rate: float, fund_date: date, mat_date: date) -
             "is_balloon": is_balloon,
         })
     return {"rows": rows, "interest": interest, "balloon": balloon, "months": months}
+
+
+# --- Repayment schedule (display) -----------------------------------------
+
+def calc_repayment_schedule(principal: float, rate: float,
+                            fund_date: date, mat_date: date) -> dict:
+    """Fallback repayment schedule for Section X when the documents don't carry one.
+
+    Mirrors how South River's facilities actually repay: interest is paid every
+    month (equal installments of principal * rate / 12) and the principal is
+    repaid as a single balloon on the final payment. This is presentation only —
+    it does NOT change ``calc_amort`` (the actual/365 interest used for the
+    facility total on the PFS).
+
+    Returns one row per monthly payment ({num, date, interest, principal, total,
+    is_balloon}) plus column totals. Totals are the sum of the displayed rows so
+    the table always foots.
+    """
+    months = (mat_date.year - fund_date.year) * 12 + (mat_date.month - fund_date.month)
+    months = max(months, 1)
+    monthly_interest = round((principal or 0) * (rate / 100) / 12)
+
+    rows = []
+    for i in range(1, months + 1):
+        y = fund_date.year + (fund_date.month - 1 + i) // 12
+        m = (fund_date.month - 1 + i) % 12 + 1
+        d = date(y, m, min(fund_date.day, 28))
+        is_balloon = i == months
+        prin = principal if is_balloon else 0
+        rows.append({
+            "num": i,
+            # integer day + %b/%y, never the glibc-only "%-d" (ValueError on Windows)
+            "date": f"{d.day}-{d.strftime('%b')}-{d.strftime('%y')}",
+            "interest": monthly_interest,
+            "principal": prin,
+            "total": monthly_interest + prin,
+            "is_balloon": is_balloon,
+        })
+
+    total_interest = sum(r["interest"] for r in rows)
+    total_principal = sum(r["principal"] for r in rows)
+    return {
+        "rows": rows,
+        "total_interest": total_interest,
+        "total_principal": total_principal,
+        "total_payment": total_interest + total_principal,
+        "months": months,
+    }
 
 
 # --- Facility total --------------------------------------------------------
