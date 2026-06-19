@@ -353,6 +353,64 @@ def test_ssn_masking(raw, expected):
     assert calc.mask_ssn(raw) == expected
 
 
+# --- Sport label ("professional <sport> player") --------------------------
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Professional Ice Hockey", "Ice Hockey"),
+    ("professional basketball", "basketball"),
+    ("PROFESSIONAL Football", "Football"),
+    ("Ice Hockey", "Ice Hockey"),
+    ("", ""),
+    (None, ""),
+])
+def test_normalize_sport_strips_leading_professional(raw, expected):
+    assert calc.normalize_sport(raw) == expected
+
+
+def test_render_does_not_double_professional():
+    # The extraction often returns "Professional Ice Hockey"; the memo must not
+    # render "professional Professional ...".
+    terms = DealTerms(
+        name="Mika Zibanejad", team="New York Rangers", league="NHL",
+        sport="Professional Ice Hockey", loan=4_435_000, salary=39_500_000,
+    )
+    html = memo_service.render_html(terms, None, [])
+    assert "professional Professional" not in html
+    assert "Professional Professional" not in html
+    assert "a Professional Ice Hockey player" in html
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("a professional Professional player", "a professional player"),
+    ("Professional Professional contract", "Professional contract"),
+    ("professional   professional", "professional"),
+    # single / non-consecutive occurrences are left untouched
+    ("a professional player", "a professional player"),
+    ("No professional team. Professional contract salary.",
+     "No professional team. Professional contract salary."),
+])
+def test_dedupe_professional(raw, expected):
+    assert memo_service._dedupe_professional(raw) == expected
+
+
+def test_render_dedupes_professional_in_narrative():
+    # A narrative captured from the documents that itself doubles the word is
+    # still cleaned up in the rendered memo (source-agnostic safety net).
+    ed = Extraction(
+        sport="Ice Hockey",
+        sponsorship_narrative=(
+            "Mika Zibanejad is a professional Professional Ice Hockey player "
+            "for the New York Rangers of the NHL."
+        ),
+    )
+    terms = DealTerms(name="Mika Zibanejad", team="New York Rangers",
+                      league="NHL", sport="Ice Hockey", loan=4_435_000,
+                      salary=39_500_000)
+    html = memo_service.render_html(terms, ed, [])
+    assert "professional Professional" not in html
+    assert "a professional Ice Hockey player" in html
+
+
 # --- Loan term (Section II Action Request) --------------------------------
 
 def test_loan_term_months_prefers_document_term():

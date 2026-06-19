@@ -11,6 +11,7 @@ original design pixel-for-pixel), and exports it to PDF and Word.
 from __future__ import annotations
 
 import os
+import re
 from datetime import date, datetime
 from pathlib import Path
 
@@ -209,6 +210,22 @@ def _doc_list_html(filenames: list[str]) -> str:
     )
 
 
+_DUP_PROFESSIONAL_RE = re.compile(r"\bprofessional(?:\s+professional\b)+", re.I)
+
+
+def _dedupe_professional(html: str) -> str:
+    """Collapse any run of consecutive 'professional' words down to one.
+
+    The memo phrases the borrower as "a Professional <sport> player", and the
+    sport value is already normalized (calc.normalize_sport) so it can't carry
+    its own "Professional". This is the final, source-agnostic guarantee: even
+    if a narrative captured from the documents (sponsorship/contract notes)
+    contains the doubled word, the rendered memo never reads
+    "Professional Professional ...". Casing of the first word is preserved.
+    """
+    return _DUP_PROFESSIONAL_RE.sub(lambda m: m.group(0).split()[0], html)
+
+
 def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | None = None) -> str:
     """Render the full credit memo as an HTML string."""
     filenames = filenames or []
@@ -216,6 +233,7 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
     rate = terms.rate or 0
     fee = terms.fee or 0
     salary = terms.salary or (ed.salary if ed else 0) or 0
+    sport = calc.normalize_sport(terms.sport)
 
     amort = None
     if terms.fund and terms.mat and loan and rate:
@@ -259,7 +277,7 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "name": terms.name or "[Borrower Name]",
         "team": terms.team or "[Team Name]",
         "league": terms.league or "[League]",
-        "sport": terms.sport or "[sport]",
+        "sport": sport or "[sport]",
         "addr": terms.addr or "[Address]",
         "phone": terms.phone or "[Phone]",
         "dob": terms.dob or "[DOB]",
@@ -278,8 +296,8 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "interest_money": _money(amort_for_tpl["interest"]),
         "ltc": f"{ltc:.1f}",
         "sponsor_text": (ed.sponsorship_narrative if ed and ed.sponsorship_narrative
-                         else f"{terms.name or '[Borrower Name]'} is a professional "
-                              f"{terms.sport or '[sport]'} player for the "
+                         else f"{terms.name or '[Borrower Name]'} is a Professional "
+                              f"{sport or '[sport]'} player for the "
                               f"{terms.team or '[Team Name]'} of the {terms.league or '[League]'}."),
         "credit_text": (ed.credit_notes if ed and ed.credit_notes
                         else "Credit report reviewed. No bankruptcies, no judgments, no tax liens on file."),
@@ -292,7 +310,8 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "doc_list_html": _doc_list_html(filenames),
     }
 
-    return _env.get_template("memo.html.j2").render(**context)
+    html = _env.get_template("memo.html.j2").render(**context)
+    return _dedupe_professional(html)
 
 
 def render_pdf(html: str) -> bytes:

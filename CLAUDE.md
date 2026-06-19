@@ -71,6 +71,12 @@ never silently.
     in the documents (a term sheet's "Term: N months"), falling back to the
     funding-to-maturity span. Captured by `loan_term_months` (extraction.py) and
     resolved by `calc.loan_term_months`.
+16. The memo phrases the borrower as "a Professional <sport> player", so the
+    sport value is normalized (`calc.normalize_sport`) to drop a leading
+    "professional". As a source-agnostic backstop, `_dedupe_professional` (memo.py)
+    collapses any consecutive duplicate "professional" in the rendered HTML
+    (e.g. from a captured narrative). The memo must never render
+    "Professional Professional ...".
 
 The Alvarado reference deal: $12,267,600 assets, $10,373,361 total liabilities,
 $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.

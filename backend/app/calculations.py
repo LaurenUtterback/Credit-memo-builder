@@ -37,6 +37,9 @@ Underwriting rules encoded here
 13. The loan term in months (Section II Action Request) prefers the term stated
     in the documents (a term sheet's "Term: N months"); it falls back to the
     funding-to-maturity span used for the amortization schedule.
+14. The memo phrases the borrower as "a Professional <sport> player", so the
+    sport value is normalized to drop a leading "professional" — the memo must
+    never render "Professional Professional ...".
 """
 
 from __future__ import annotations
@@ -361,3 +364,18 @@ def calc_ltc(loan: float, guaranteed_salary: float) -> float:
 def mask_ssn(value) -> str:
     digits = re.sub(r"\D", "", str(value or ""))[-4:]
     return f"XXX-XX-{digits}" if digits else ""
+
+
+# --- Sport label -----------------------------------------------------------
+
+_PRO_PREFIX_RE = re.compile(r"^\s*professional\s+", re.I)
+
+
+def normalize_sport(sport) -> str:
+    """Strip a leading 'Professional' from the sport name.
+
+    The memo phrases this as "a Professional <sport> player", so a sport value
+    of "Professional Ice Hockey" would render the word twice. Dropping the
+    prefix here guarantees the memo never says "Professional Professional ...".
+    """
+    return _PRO_PREFIX_RE.sub("", str(sport or "")).strip()
