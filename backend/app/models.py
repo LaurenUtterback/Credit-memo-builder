@@ -93,6 +93,12 @@ class Extraction(BaseModel):
     total_liabilities: float = 0.0
     net_worth: float = 0.0            # captured but NOT used (recomputed)
     facility_total_due: float = 0.0
+    # Proposed-facility deal terms as stated in the documents (term sheet, etc.).
+    # The frontend pre-fills the deal-terms form from these; the memo also falls
+    # back to them when the corresponding form field is left blank.
+    loan_amount: float = 0.0          # loan / proposed facility principal
+    interest_rate_pct: float = 0.0    # annual interest rate, percent (e.g. 13.5)
+    origination_fee_pct: float = 0.0  # origination / upfront fee, percent (e.g. 3)
     loan_term_months: int = 0         # term of the proposed facility, in whole months
 
     # The loan's repayment schedule as it appears in the uploaded documents.

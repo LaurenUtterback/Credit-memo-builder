@@ -452,6 +452,35 @@ def test_render_document_term_overrides_date_span():
     assert "<strong>6</strong>-month full balloon loan" in html
 
 
+# --- Deal terms pulled from the documents ---------------------------------
+
+def test_render_falls_back_to_extracted_deal_terms():
+    # Loan amount / rate / fee left blank on the form -> the memo uses the
+    # values pulled from the documents (the term sheet in the screenshot).
+    ed = Extraction(
+        loan_amount=4_435_000, interest_rate_pct=13.5, origination_fee_pct=3,
+        salary=39_500_000,
+    )
+    terms = DealTerms(name="Mika Zibanejad")   # nothing typed yet
+    html = memo_service.render_html(terms, ed, [])
+    assert "$4,435,000" in html                       # loan amount
+    assert "13.5%" in html                            # interest rate
+    assert "3% ($133,050)" in html                    # origination fee % and $
+
+
+def test_typed_deal_terms_override_extracted():
+    # A value the user typed always wins over the document value.
+    ed = Extraction(loan_amount=4_435_000, interest_rate_pct=13.5,
+                    origination_fee_pct=3, salary=39_500_000)
+    terms = DealTerms(name="Mika Zibanejad", loan=5_000_000, rate=12, fee=2,
+                      salary=39_500_000)
+    html = memo_service.render_html(terms, ed, [])
+    assert "$5,000,000" in html
+    assert "12%" in html
+    assert "2% ($100,000)" in html
+    assert "$4,435,000" not in html
+
+
 # --- Memo rendering smoke test --------------------------------------------
 
 def test_render_html_contains_key_figures(alvarado):

@@ -65,6 +65,15 @@ def _signed(n) -> str:
     return f"({_money(abs(n))})" if n < 0 else _money(n)
 
 
+def _fmt_pct(n) -> str:
+    """Format a rate/fee percent without a trailing .0 (3.0 -> '3', 13.5 -> '13.5'),
+    so the memo matches how the term sheet states it."""
+    try:
+        return f"{float(n):g}"
+    except (TypeError, ValueError):
+        return str(n)
+
+
 def _fmt_long(d: date | None) -> str:
     # Build the no-leading-zero day from the date's integer fields instead of the
     # glibc/BSD-only "%-d" strftime code, which raises ValueError on Windows.
@@ -229,9 +238,11 @@ def _dedupe_professional(html: str) -> str:
 def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | None = None) -> str:
     """Render the full credit memo as an HTML string."""
     filenames = filenames or []
-    loan = terms.loan or 0
-    rate = terms.rate or 0
-    fee = terms.fee or 0
+    # Confirmed deal terms win; otherwise fall back to what was pulled from the
+    # documents (same pattern as salary), so the memo reflects the term sheet.
+    loan = terms.loan or (ed.loan_amount if ed else 0) or 0
+    rate = terms.rate or (ed.interest_rate_pct if ed else 0) or 0
+    fee = terms.fee or (ed.origination_fee_pct if ed else 0) or 0
     salary = terms.salary or (ed.salary if ed else 0) or 0
     sport = calc.normalize_sport(terms.sport)
 
@@ -284,8 +295,8 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "ssn": calc.mask_ssn(terms.ssn) or "[XXX-XX-####]",
         "dl": terms.dl or "[DL#]",
         "agent": terms.agent or "",
-        "rate": rate,
-        "fee": fee,
+        "rate": _fmt_pct(rate),
+        "fee": _fmt_pct(fee),
         "fee_amt": _money(loan * fee / 100) if loan and fee else "[Fee]",
         "mat_fmt": _fmt_long(terms.mat),
         "md_fmt": _fmt_short(date.today()),

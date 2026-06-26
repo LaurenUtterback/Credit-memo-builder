@@ -42,7 +42,12 @@ async function runExtract() {
       dl: ed.drivers_license, agent: ed.agent,
     }
     for (const [k, v] of Object.entries(map)) if (v && !terms[k]) terms[k] = v
+    // Numeric deal terms pulled from the documents (term sheet): only fill blanks
+    // so a value the user already typed is never overwritten.
     if (ed.salary && !terms.salary) terms.salary = ed.salary
+    if (ed.loan_amount && !terms.loan) terms.loan = ed.loan_amount
+    if (ed.interest_rate_pct && !terms.rate) terms.rate = ed.interest_rate_pct
+    if (ed.origination_fee_pct && !terms.fee) terms.fee = ed.origination_fee_pct
     status.type = 'ok'
     status.msg = '✓ Extracted — confirm deal terms and generate'
   } catch (err) {
