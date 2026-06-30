@@ -1,6 +1,10 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { extractDocuments, memoHtml, downloadPdf, downloadWord } from './lib/api.js'
+import PaBuilder from './PaBuilder.vue'
+
+// which builder is showing: 'memo' (credit memo) or 'pa' (participation agreement)
+const view = ref('memo')
 
 // --- state -----------------------------------------------------------------
 const files = ref([])
@@ -24,7 +28,19 @@ const canGenerate = computed(() => terms.loan && terms.salary)
 
 // --- handlers --------------------------------------------------------------
 function onFiles(e) {
-  files.value = Array.from(e.target.files)
+  // Accumulate across selections so the user can add documents one or several
+  // at a time (e.g. from different folders); dedupe by name+size.
+  const seen = new Set(files.value.map((f) => f.name + ':' + f.size))
+  for (const f of Array.from(e.target.files)) {
+    const key = f.name + ':' + f.size
+    if (!seen.has(key)) { files.value.push(f); seen.add(key) }
+  }
+  // reset so picking the same file again (or adding more later) still fires change
+  e.target.value = ''
+}
+
+function removeFile(i) {
+  files.value.splice(i, 1)
 }
 
 async function runExtract() {
@@ -95,14 +111,28 @@ async function exportWord() {
     <header class="masthead">
       <div>
         <div class="brand">South River Capital</div>
-        <div class="tag">Credit Memorandum Builder</div>
+        <div class="tag">{{ view === 'pa' ? 'Participation Agreement Builder' : 'Credit Memorandum Builder' }}</div>
       </div>
+      <nav class="tabs">
+        <button :class="['tab', { active: view === 'memo' }]" @click="view = 'memo'">Credit Memo</button>
+        <button :class="['tab', { active: view === 'pa' }]" @click="view = 'pa'">Participation Agreement</button>
+      </nav>
     </header>
 
+    <PaBuilder v-if="view === 'pa'" :memo-terms="terms" :memo-extraction="extraction" />
+
+    <template v-else>
     <!-- Step 1: upload + extract -->
     <section class="card">
       <h2><span class="step">1</span> Upload deal documents</h2>
       <input type="file" multiple @change="onFiles" />
+      <p class="hint">Select several at once, or add more one at a time — they accumulate.</p>
+      <ul v-if="files.length" class="filelist">
+        <li v-for="(f, i) in files" :key="f.name + f.size">
+          <span class="fname">{{ f.name }}</span>
+          <button type="button" class="rm" @click="removeFile(i)" title="Remove">✕</button>
+        </li>
+      </ul>
       <p v-if="files.length" class="hint">{{ files.length }} file(s) selected</p>
       <button :disabled="!files.length || extracting" @click="runExtract">
         {{ extracting ? 'Analyzing…' : 'Extract with Claude' }}
@@ -152,6 +182,7 @@ async function exportWord() {
       <h2>Preview</h2>
       <iframe :srcdoc="memoHtmlContent" class="preview" title="Credit memo preview"></iframe>
     </section>
+    </template>
   </div>
 </template>
 
@@ -159,9 +190,12 @@ async function exportWord() {
 :root { --navy: #0f2a43; --gold: #b9952b; }
 body { margin: 0; background: #eceae3; font-family: system-ui, sans-serif; color: #1a1a1a; }
 .wrap { max-width: 1000px; margin: 0 auto; padding: 20px; }
-.masthead { border-bottom: 3px solid var(--navy); padding-bottom: 12px; margin-bottom: 18px; }
+.masthead { border-bottom: 3px solid var(--navy); padding-bottom: 12px; margin-bottom: 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .brand { font-size: 20px; font-weight: 700; color: var(--navy); letter-spacing: .04em; text-transform: uppercase; }
 .tag { font-size: 11px; letter-spacing: .25em; color: var(--gold); text-transform: uppercase; margin-top: 4px; }
+.tabs { display: flex; gap: 4px; }
+.tab { background: #fff; color: var(--navy); border: 1px solid #cdd3da; border-bottom: 0; border-radius: 8px 8px 0 0; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; margin: 0 0 -1px; }
+.tab.active { background: var(--navy); color: #fff; border-color: var(--navy); }
 .card { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }
 .card h2 { font-size: 14px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
 .step { background: var(--navy); color: #fff; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; }
@@ -172,6 +206,10 @@ button { background: var(--navy); color: #fff; border: 0; border-radius: 6px; pa
 button:disabled { opacity: .5; cursor: not-allowed; }
 button.ghost { background: #fff; color: var(--navy); border: 1px solid var(--navy); }
 .hint { font-size: 12px; color: #888; }
+.filelist { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.filelist li { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #f4f6f8; border: 1px solid #e0e4e9; border-radius: 6px; padding: 5px 10px; font-size: 12px; }
+.filelist .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filelist .rm { background: transparent; color: #b00020; border: 0; padding: 0 4px; margin: 0; font-size: 13px; line-height: 1; cursor: pointer; }
 .status { font-size: 12px; padding: 8px 10px; border-radius: 6px; margin-top: 10px; }
 .status.info { background: #e6f1fb; color: #0c447c; }
 .status.ok { background: #e8f5ee; color: #0f6e56; }

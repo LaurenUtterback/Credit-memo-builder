@@ -26,6 +26,10 @@ from dotenv import load_dotenv
 from .models import Extraction, MemoRequest, UploadedDoc
 from . import extraction as extraction_service
 from . import memo as memo_service
+from .pa_models import PAExtraction, PARequest, PATerms, BreakdownResult
+from . import pa_extraction as pa_extraction_service
+from . import pa_agreement as pa_agreement_service
+from . import pa_breakdown as pa_breakdown_service
 
 # Load the project-root .env so the Claude usage token (CLAUDE_CODE_OAUTH_TOKEN)
 # is available however the server is launched. This does NOT rely on uvicorn's
@@ -56,6 +60,8 @@ def health() -> dict:
     return {
         "status": "ok",
         "extraction_configured": extraction_service.usage_token() is not None,
+        "pa_templates": pa_agreement_service.templates_present(),
+        "pa_pdf": pa_agreement_service.pdf_available(),
     }
 
 
@@ -121,4 +127,69 @@ def memo_word(req: MemoRequest) -> Response:
         content=doc,
         media_type="application/msword",
         headers={"Content-Disposition": f'attachment; filename="Credit_Memorandum_{name}.doc"'},
+    )
+
+
+# --- Participation Agreement Builder ---------------------------------------
+
+@app.post("/api/pa/extract", response_model=PAExtraction)
+def pa_extract(docs: list[UploadedDoc]) -> PAExtraction:
+    """Extract participation-deal fields from uploaded loan documents."""
+    if not docs:
+        raise HTTPException(status_code=400, detail="No documents provided.")
+    try:
+        return pa_extraction_service.extract_documents(docs)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/pa/breakdown", response_model=BreakdownResult)
+def pa_breakdown(docs: list[UploadedDoc]) -> BreakdownResult:
+    """Parse a Participant Breakdown .xlsx into deal info + per-participant terms."""
+    import base64
+
+    xlsx = next(
+        (d for d in docs
+         if d.filename.lower().endswith((".xlsx", ".xlsm"))
+         or "spreadsheet" in d.mime or "excel" in d.mime),
+        docs[0] if docs else None,
+    )
+    if xlsx is None:
+        raise HTTPException(status_code=400, detail="No spreadsheet provided.")
+    try:
+        data = base64.b64decode(xlsx.b64)
+        return BreakdownResult(**pa_breakdown_service.parse_breakdown(data))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - surface parse failures cleanly
+        raise HTTPException(status_code=422, detail=f"Could not read the breakdown: {exc}") from exc
+
+
+def _pa_filename(terms: PATerms, ext: str) -> str:
+    base = _safe_name(terms.borrower_name or "Participation")
+    return f"Participation_Agreement_{base}.{ext}"
+
+
+@app.post("/api/pa/docx")
+def pa_docx(req: PARequest) -> Response:
+    """Generate the filled Participation Agreement as a Word .docx."""
+    data = pa_agreement_service.render_docx(req.terms, req.agreement_type)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{_pa_filename(req.terms, "docx")}"'},
+    )
+
+
+@app.post("/api/pa/pdf")
+def pa_pdf(req: PARequest) -> Response:
+    """Generate the filled Participation Agreement as a PDF (via LibreOffice)."""
+    try:
+        data = pa_agreement_service.render_pdf(req.terms, req.agreement_type)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{_pa_filename(req.terms, "pdf")}"'},
     )

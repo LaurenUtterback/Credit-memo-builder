@@ -16,6 +16,13 @@ dependencies = [
     # GTK/Pango/Cairo libraries (WeasyPrint couldn't load those on Windows).
     # After install, fetch the browser once:  python -m playwright install chromium
     "playwright>=1.40",
+    # Participation Agreement Builder: fill the .docx template (docxtpl/python-docx).
+    # PDF export of the agreement uses LibreOffice headless (located at runtime),
+    # not a Python dependency.
+    "python-docx>=1.1",
+    "docxtpl>=0.18",
+    # Reads the Participant Breakdown .xlsx (participation %, points, late-fee share).
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]

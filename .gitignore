@@ -26,3 +26,12 @@ dist/
 # Runtime logs
 logs/
 *.log
+
+# Participation Agreement Builder — local dev tooling & data.
+# The whole tools/ dir stays local: the build script and the captured struct/
+# data files contain REAL deal data (borrower names, loan #s, amounts), which
+# must never be committed to this public repo. The committed templates
+# (app/templates/participation_agreement_*.docx) hold only {{ placeholders }}.
+backend/tools/
+
+frontend/public/_bd_test.xlsx

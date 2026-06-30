@@ -90,8 +90,16 @@ the rules above.
 
 ## Running locally
 
+Easiest: double-click **`Start Builder.bat`** in the repo root — it launches the
+backend and frontend in two minimized windows and opens http://localhost:5173.
+Keep those windows open while using the app; there is no auto-start on reboot.
+
+Manual:
 Backend:  see `backend/README.md` (uvicorn on :8000)
 Frontend: `cd frontend && npm install && npm run dev` (Vite on :5173, proxies /api)
+
+Note: the app is at **http://localhost:5173** (Vite binds the `localhost`/IPv6
+name, not `127.0.0.1` — `127.0.0.1:5173` can refuse the connection).
 
 ## Conventions
 
@@ -100,3 +108,72 @@ Frontend: `cd frontend && npm install && npm run dev` (Vite on :5173, proxies /a
 - All network calls go through `frontend/src/lib/api.js`.
 - Add a test for any new rule or any bug you fix in calculations.
 - Never commit `.env` or any API key.
+
+## Participation Agreement Builder
+
+A second tool lives in the same app (tab switch in `App.vue`, `view === 'pa'`).
+It generates South River's loan **Participation Agreement** — Lender is always
+fixed (South River Capital LLC / James Plack). A dropdown chooses the form:
+  * **Brookridge Participation Agreement** — Participant defaults to Brookridge
+    Opportunistic Credit Fund, LP; Brookridge's clause set; Key Terms include
+    Total Loan Amount, Participant's Loan Amount, Origination Fee $.
+  * **Participation Agreement (standard form)** — Participant blank by default;
+    adds the Lead-Lender disclaimer, Participant rep (c), an Arbitration section,
+    and different default-interest language; Key Terms use Purchase Price,
+    Application & Administration Fees, and late fees as "% × Participation %".
+Drop the deal documents, Claude extracts the loan terms, the user confirms every
+field, and it produces the filled agreement as Word **and** PDF (agreement +
+Exhibit A Key Terms + Exhibit B Participation Certificate). The chosen form is
+sent as `agreement_type` ("brookridge" | "standard") on the /api/pa requests.
+
+Backend pieces:
+- `app/pa_models.py` — `PAExtraction` (what Claude pulls from docs), `PATerms`
+  (the exact strings injected into the template, one per placeholder), and the
+  `Breakdown*` models.
+- `app/pa_extraction.py` — reuses the SAME Claude usage-token (OAuth) auth as
+  `extraction.py`; only the prompt differs (loan/participation deal fields).
+- `app/pa_breakdown.py` — parses the deal's **Participant Breakdown .xlsx**
+  (openpyxl) into deal info + per-participant terms. It RECOMPUTES the sheet's
+  formulas itself (Participation % = Participant $ / Loan amount; Points $ =
+  Points % × Participant $; Late-fee share = Participation % × 50%) so it works
+  even without Excel's cached values. Emails come from the lookup sheet.
+- `app/pa_agreement.py` — fills the template with **docxtpl** (pure Python) and
+  converts the .docx to PDF with **LibreOffice headless** (`find_soffice()`).
+- Routes: `POST /api/pa/extract`, `/api/pa/breakdown`, `/api/pa/docx`, `/api/pa/pdf`.
+- Frontend: `frontend/src/PaBuilder.vue` (uses the app's existing global CSS).
+  Drop the breakdown .xlsx → pick a participant → the Key Terms (participation %,
+  points %/$, interest, late-fee share, amount, email) auto-fill (mapped per
+  form: brookridge → participant_loan_amount + origination_fee_amount; standard
+  → purchase_price). "Recalculate" applies the same formulas to manual entry.
+  `App.vue` passes the Credit Memo's `terms` to `PaBuilder` as `:memo-terms`, and a
+  **"Pull deal info from Credit Memo"** button copies borrower, loan amount,
+  interest rate, origination fee, and the funding date (→ agreement_date) over —
+  so a typical flow is: build the memo → pull → drop the breakdown → generate.
+
+Templates — `app/templates/participation_agreement_{brookridge,standard}.docx`:
+- Hold ONLY `{{ placeholders }}`, never deal data. Built by
+  `tools/build_pa_template.py` (config-driven; one config per form) from
+  `tools/_pa_struct_{brookridge,standard}.json` — faithful paragraph-level
+  captures (text, auto-number strings, alignment, bold spans) of the source
+  docs. Re-run after editing: `.venv\Scripts\python.exe tools\build_pa_template.py`.
+- BROOKRIDGE: reproduced verbatim, including its numbering and internal
+  cross-references ("Section 6.2", "9.3", …) and their quirks — do NOT "fix" them.
+- STANDARD: clause WORDING is verbatim, but the source's numbering was internally
+  inconsistent (auto-numbers 1)/a)/i) that didn't match its own "Section 3.2(b)"/
+  "6.1"/"9.3" cross-references, plus a duplicated Section 9). Per the user's
+  decision it is NORMALIZED to the decimal scheme the clauses cross-reference
+  (8 Notices, 9 Arbitration, 10 Miscellaneous) with the one stale reference
+  corrected ("9.3" → "10.3"). The numbering is encoded as an explicit `numbered`
+  map in the STANDARD config, not taken from the source's auto-numbers.
+- `pa_agreement.template_path(agreement_type)` selects the file (default brookridge).
+- `tools/_*` is git-ignored: it can contain REAL deal data (borrower, amounts,
+  loan #) captured from the sources, and this repo is public.
+
+PDF export (LibreOffice):
+- Located at runtime via `SOFFICE_PATH` env, then known install paths, then a
+  no-admin copy under `%LOCALAPPDATA%\CreditMemoBuilder\libreoffice\program\
+  soffice.exe`. The .docx download always works; only PDF needs LibreOffice.
+- On this machine LibreOffice was extracted (no admin) with
+  `msiexec /a <LibreOffice.msi> /qn TARGETDIR=%LOCALAPPDATA%\CreditMemoBuilder\
+  libreoffice`. Word COM automation is NOT used (SaveAs hangs in headless/
+  non-interactive sessions).
