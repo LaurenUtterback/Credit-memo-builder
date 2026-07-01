@@ -9,6 +9,7 @@ const props = defineProps({
 })
 
 const BROOKRIDGE_PARTICIPANT = 'Brookridge Opportunistic Credit Fund, LP'
+const BROOKRIDGE_SIGNATORY = 'Nate Bohn'   // Brookridge always signs via Nate Bohn
 
 // --- state -----------------------------------------------------------------
 const agreementType = ref('brookridge')           // 'brookridge' | 'standard'
@@ -33,7 +34,7 @@ const terms = reactive({
   servicing_fee_pct: '0%',
   // Participant & signatory
   participant_name: BROOKRIDGE_PARTICIPANT,
-  participant_signatory_name: '',
+  participant_signatory_name: BROOKRIDGE_SIGNATORY,
   participant_signatory_title: '',
   participant_address: '',
   participant_email: '',
@@ -61,13 +62,14 @@ const isBrookridge = computed(() => agreementType.value === 'brookridge')
 // Switching forms: keep the participant default sensible, and re-map the chosen
 // breakdown participant's $ into the right field for the new form.
 watch(agreementType, (now) => {
-  if (selectedParticipant.value) {
-    applyParticipant()
-  } else if (now === 'brookridge') {
+  if (now === 'brookridge') {
     if (!terms.participant_name) terms.participant_name = BROOKRIDGE_PARTICIPANT
-  } else if (terms.participant_name === BROOKRIDGE_PARTICIPANT) {
-    terms.participant_name = ''
+    if (!terms.participant_signatory_name) terms.participant_signatory_name = BROOKRIDGE_SIGNATORY
+  } else {
+    if (terms.participant_name === BROOKRIDGE_PARTICIPANT) terms.participant_name = ''
+    if (terms.participant_signatory_name === BROOKRIDGE_SIGNATORY) terms.participant_signatory_name = ''
   }
+  if (selectedParticipant.value) applyParticipant()
   previewUrl.value = ''
 })
 
@@ -198,6 +200,7 @@ function applyParticipant() {
   let name = p.name
   if (isBrookridge.value && name.trim().toLowerCase().startsWith('brookridge')) {
     name = BROOKRIDGE_PARTICIPANT
+    terms.participant_signatory_name = BROOKRIDGE_SIGNATORY   // Brookridge signs via Nate Bohn
   }
   terms.participant_name = name
   // These come from the breakdown already formatted at the sheet's precision.
