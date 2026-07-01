@@ -228,7 +228,7 @@ function applyParticipant() {
   terms.origination_fee_pct = p.points_pct
   terms.interest_rate_apr = p.interest_rate
   terms.late_fee_share_pct = p.late_fee_share_pct
-  if (p.email) terms.participant_email = p.email
+  terms.participant_email = p.email || ''   // from breakdown Sheet 2; blank if none
   if (isBrookridge.value) {
     terms.participant_loan_amount = p.amount
     terms.origination_fee_amount = p.points_amount
