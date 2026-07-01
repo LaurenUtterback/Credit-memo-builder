@@ -11,13 +11,25 @@ const props = defineProps({
 const BROOKRIDGE_PARTICIPANT = 'Brookridge Opportunistic Credit Fund, LP'
 const BROOKRIDGE_SIGNATORY = 'Nate Bohn'   // Brookridge always signs via Nate Bohn
 
+// Participants whose Signatory differs from the printed Participant Name.
+// Everyone else signs in their own name (Signatory Name = Participant Name).
+const PARTICIPANT_OVERRIDES = {
+  'john howe': { participant: 'Howe Acres, LLC', signatory: 'John Howe' },
+}
+
+// Today's date (yyyy-mm-dd) — the Agreement date defaults to the generation date.
+const TODAY_ISO = (() => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+})()
+
 // --- state -----------------------------------------------------------------
 const agreementType = ref('brookridge')           // 'brookridge' | 'standard'
 
 const terms = reactive({
   // Deal (from the Credit Memo pull / Participant Breakdown)
   borrower_name: '',
-  agreement_date: '',
+  agreement_date: TODAY_ISO,      // defaults to the generation date; editable
   loan_agreement_date: '',
   loan_number: '',
   total_loan_amount: '',         // gross loan; feeds recital/cert principal
@@ -118,7 +130,7 @@ function pullFromMemo() {
   if (t.loan) terms.total_loan_amount = fmtMoney(Number(t.loan), true)
   if (t.rate) terms.interest_rate_apr = fmtPct(Number(t.rate))
   if (t.fee) terms.origination_fee_pct = fmtPct(Number(t.fee))
-  if (t.fund) terms.agreement_date = toISODate(t.fund)   // funding date -> date picker
+  // Agreement date stays the generation date (today) — not the funding date.
 }
 
 // Upload a previously-generated Credit Memo and let Claude read the deal info.
@@ -135,7 +147,6 @@ async function readCreditMemo() {
   try {
     const ed = await paExtract(memoFiles.value)
     fill('borrower_name', ed.borrower_name)
-    fill('agreement_date', toISODate(ed.agreement_date))
     fill('loan_agreement_date', toISODate(ed.loan_agreement_date))
     fill('loan_number', ed.loan_number)
     if (ed.loan_amount > 0) fill('total_loan_amount', fmtMoney(ed.loan_amount, true))
@@ -188,6 +199,18 @@ async function loadBreakdown() {
   breakdownLoading.value = false
 }
 
+// Resolve a breakdown participant name -> printed Participant Name + Signatory.
+// Brookridge keeps its fixed info; overrides (e.g. John Howe -> Howe Acres, LLC)
+// name an entity with a distinct signer; everyone else signs in their own name.
+function resolveParticipant(rawName) {
+  const raw = (rawName || '').trim()
+  const key = raw.toLowerCase()
+  if (key.startsWith('brookridge')) {
+    return { participant: BROOKRIDGE_PARTICIPANT, signatory: BROOKRIDGE_SIGNATORY }
+  }
+  return PARTICIPANT_OVERRIDES[key] || { participant: raw, signatory: raw }
+}
+
 // Fill the form from the chosen breakdown participant (authoritative — overwrites).
 function applyParticipant() {
   const p = participantOptions.value.find((x) => x.name === selectedParticipant.value)
@@ -197,12 +220,9 @@ function applyParticipant() {
   if (d.loan_number) terms.loan_number = String(d.loan_number)
   if (d.loan_amount) terms.total_loan_amount = fmtMoney(d.loan_amount, true)
 
-  let name = p.name
-  if (isBrookridge.value && name.trim().toLowerCase().startsWith('brookridge')) {
-    name = BROOKRIDGE_PARTICIPANT
-    terms.participant_signatory_name = BROOKRIDGE_SIGNATORY   // Brookridge signs via Nate Bohn
-  }
-  terms.participant_name = name
+  const resolved = resolveParticipant(p.name)
+  terms.participant_name = resolved.participant
+  terms.participant_signatory_name = resolved.signatory
   // These come from the breakdown already formatted at the sheet's precision.
   terms.participation_percentage = p.participation_pct
   terms.origination_fee_pct = p.points_pct
@@ -275,7 +295,7 @@ async function downloadPdf() {
     <h3 class="grp">Credit Memo</h3>
     <div v-if="hasMemo" class="pull">
       <button class="ghost" @click="pullFromMemo">⬇ Pull deal info from the Credit Memo tab</button>
-      <span class="hint">Brings over the borrower, loan amount, interest rate, origination fee and date you entered on the Credit Memo tab.</span>
+      <span class="hint">Brings over the borrower, loan amount, interest rate and origination fee you entered on the Credit Memo tab.</span>
     </div>
     <p class="hint">
       Or, if the Credit Memo was generated previously, upload it (PDF works best) and Claude
