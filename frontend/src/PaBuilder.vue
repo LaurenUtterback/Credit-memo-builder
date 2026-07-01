@@ -15,6 +15,8 @@ const BROOKRIDGE_SIGNATORY = 'Nate Bohn'   // Brookridge always signs via Nate B
 // Everyone else signs in their own name (Signatory Name = Participant Name).
 const PARTICIPANT_OVERRIDES = {
   'john howe': { participant: 'Howe Acres, LLC', signatory: 'John Howe' },
+  'michael gooch': { participant: 'MG Separate Property Trust', signatory: 'Michael Gooch' },
+  'john evans': { participant: 'Evo Capital, LLC', signatory: 'John Evans' },
 }
 
 // Today's date (yyyy-mm-dd) — the Agreement date defaults to the generation date.
