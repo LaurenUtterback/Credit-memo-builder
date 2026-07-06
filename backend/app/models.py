@@ -72,7 +72,7 @@ class Extraction(BaseModel):
     drivers_license: Optional[str] = None
     agent: Optional[str] = None
 
-    salary: float = 0.0               # GUARANTEED season compensation only
+    salary: float = 0.0               # GUARANTEED season compensation (base + guaranteed annual bonuses)
     other_income: float = 0.0
     total_income: float = 0.0
     federal_taxes: float = 0.0        # captured but NOT used (taxes computed at 45%)
@@ -131,7 +131,7 @@ class DealTerms(BaseModel):
     loan: float = 0.0
     rate: float = 0.0                 # annual % (e.g. 12 for 12%)
     fee: float = 0.0
-    salary: float = 0.0               # guaranteed season salary
+    salary: float = 0.0               # guaranteed season salary (base + guaranteed annual bonuses)
     fund: Optional[date] = None       # funding date
     mat: Optional[date] = None        # maturity date
     loan_type: str = "New Loan"

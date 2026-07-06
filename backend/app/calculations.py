@@ -23,7 +23,11 @@ Underwriting rules encoded here
     never a PFS liability.
 8.  Auto loan balances are never a separate PFS liability row (they live inside
     "Notes Payable to: others"). Monthly auto PAYMENTS still appear in the cash flow.
-9.  Salary used everywhere is the GUARANTEED portion of compensation only.
+9.  Salary used everywhere is the GUARANTEED portion of compensation only:
+    the guaranteed base salary PLUS any bonus that is guaranteed and paid
+    every year of the contract (e.g. annual signing-bonus installments,
+    guaranteed yearly roster bonuses). Non-guaranteed incentives, one-time
+    bonuses, and endorsements stay excluded.
 10. LTC (Loan-to-Contract) = loan amount / guaranteed earnings.
 11. Taxes are NEVER a PFS liability. Even when the Personal Financial Statement
     reports an estimated tax figure (e.g. "Taxes (Est of 35% of ...)"), it is

@@ -22,6 +22,7 @@ backend/                 FastAPI + the authoritative business logic
     calculations.py      ALL underwriting math and rules (the crown jewels)
     models.py            Pydantic models — the API contract
     extraction.py        Anthropic document extraction (holds the prompt)
+    research.py          Wikipedia + Spotrac research on the athlete (Section V)
     memo.py              Renders the memo (Jinja2 HTML, PDF, Word)
     main.py              FastAPI routes
     templates/memo.html.j2   the memo design (HTML/CSS)
@@ -53,7 +54,12 @@ never silently.
 7. Alimony / child support is a cash-flow item ONLY. Never a PFS liability.
 8. Auto loan balances are never a separate PFS liability (they live inside
    "Notes Payable to: others"). Monthly auto PAYMENTS still appear in the cash flow.
-9. Salary used everywhere is the GUARANTEED portion of compensation only.
+9. Salary used everywhere is the GUARANTEED portion of compensation only —
+   the guaranteed base salary PLUS any bonus that is guaranteed and paid every
+   year of the contract (annual signing-bonus installments, guaranteed yearly
+   roster bonuses). Non-guaranteed incentives, one-time bonuses, and
+   endorsements stay excluded. (Changed 2026-07-06: annual guaranteed bonuses
+   used to be excluded; now they are added into salary.)
 10. LTC (Loan-to-Contract) = loan amount / guaranteed earnings.
 11. The memo must NOT contain the phrase "general business purposes".
 12. SSN/Tax ID is only ever stored/shown as the last 4 digits (XXX-XX-1234).
@@ -84,9 +90,25 @@ $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.
 ## The extraction prompt
 
 `extraction.py` holds the prompt sent to Claude. Its instructions about
-guaranteed-salary-only, capturing every liability/expenditure line verbatim,
-auto-loan folding, and SSN redaction are load-bearing. Keep them consistent with
-the rules above.
+guaranteed-compensation-only salary (base + guaranteed annual bonuses),
+capturing every liability/expenditure line verbatim, auto-loan folding, and SSN
+redaction are load-bearing. Keep them consistent with the rules above.
+
+## Section V — Project Sponsorship research
+
+Section V describes the ATHLETE (background, career, contract history, career
+earnings), not just the facility. After document extraction, `extraction.py`
+`_compose_sponsorship` makes a second Claude call that writes the narrative
+from public sources gathered by `research.py`:
+- Wikipedia via httpx (needs the descriptive User-Agent — Wikimedia 403s
+  browser-imitating UAs).
+- Spotrac via the same Playwright headless Chromium used for PDF export, with a
+  real-browser UA (Spotrac's CloudFront 403s plain HTTP clients and the default
+  HeadlessChrome UA). The API's web_search server tool is NOT available to
+  subscription OAuth tokens — don't try to switch to it.
+Research is best-effort: any failure keeps the document-derived
+`sponsorship_narrative` (and memo.py's one-line fallback below that). It must
+never make /api/extract fail.
 
 ## Running locally
 
