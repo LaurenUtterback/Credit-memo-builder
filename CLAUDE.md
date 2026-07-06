@@ -58,8 +58,13 @@ never silently.
    the guaranteed base salary PLUS any bonus that is guaranteed and paid every
    year of the contract (annual signing-bonus installments, guaranteed yearly
    roster bonuses). Non-guaranteed incentives, one-time bonuses, and
-   endorsements stay excluded. (Changed 2026-07-06: annual guaranteed bonuses
-   used to be excluded; now they are added into salary.)
+   endorsements stay excluded. Lauren's reference example (baked into the
+   extraction prompt as a worked example): remaining contract value
+   $39,500,000, base salary $1,000,000, guaranteed annual bonus & commission
+   $9,000,000 → salary = $10,000,000 (base + bonus; never the base alone,
+   never the remaining contract value, and the bonus is never double-counted
+   in other_income). (Changed 2026-07-06: annual guaranteed bonuses used to be
+   excluded; now they are added into salary.)
 10. LTC (Loan-to-Contract) = loan amount / guaranteed earnings.
 11. The memo must NOT contain the phrase "general business purposes".
 12. SSN/Tax ID is only ever stored/shown as the last 4 digits (XXX-XX-1234).
