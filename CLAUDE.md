@@ -65,7 +65,11 @@ never silently.
    contract value $39,500,000, base salary $1,000,000, guaranteed bonus
    scheduled for the season $9,000,000 → salary = $10,000,000 (base + bonus;
    never the base alone, never the remaining contract value, and the bonus is
-   never double-counted in other_income). The total remaining contract value
+   never double-counted in other_income). A second worked example in the
+   prompt (from a real dated-installment schedule Lauren supplied 2026-07-06:
+   $60M signing bonus paid July 2022–2029 in installments ranging $5.5M–$9.5M)
+   shows how to pick the installment whose payment date falls in the season
+   being underwritten. The total remaining contract value
    is captured separately (`contract_remaining`) and rendered in Section VII
    (sentence + "Total Contract Remaining" table row); it feeds no calculation.
    (Changed 2026-07-06: annual guaranteed bonuses used to be excluded; now
