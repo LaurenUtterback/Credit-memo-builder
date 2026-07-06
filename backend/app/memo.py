@@ -422,6 +422,13 @@ def render_word(html: str) -> bytes:
         "mso-header-margin:0.5in;mso-footer-margin:0.3in;"
         "mso-footer:url(\"footer.htm\") f1;mso-paper-source:0;}"
         "div.WordSection1{page:WordSection1;}"
+        # Word's HTML engine ignores CSS var(), so tr.grand's navy background
+        # (background:var(--navy)) is dropped while its color:#fff survives —
+        # white text on a white page. Repaint the grand rows (Net Cash Flow,
+        # Net Worth, Net to be Disbursed) for Word only: bold black text on the
+        # same light grey the .total rows use. This block comes after the
+        # template's <style>, so the cascade makes it win. PDF/HTML unaffected.
+        "tbody tr.grand td{background:#eef1f4;color:#000;border-color:#cdd3da;}"
         + _MSO_FOOTER_STYLE +
         ".pg-footer{display:none !important;}"
         "</style>"
