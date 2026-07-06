@@ -102,8 +102,9 @@ redaction are load-bearing. Keep them consistent with the rules above.
 ## Section V — Project Sponsorship research
 
 Section V describes the ATHLETE and their playing career ONLY (background,
-league career, contract history, career earnings) — it must never mention the
-loan, facility, funds, or use of proceeds (Lauren, 2026-07-06). After document
+league career, national/country team play when applicable, contract history,
+career earnings) — it must never mention the loan, facility, funds, or use of
+proceeds (Lauren, 2026-07-06). After document
 extraction, `extraction.py`
 `_compose_sponsorship` makes a second Claude call that writes the narrative
 from public sources gathered by `research.py`:
