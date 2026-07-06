@@ -314,8 +314,9 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
                               f"{terms.team or '[Team Name]'} of the {terms.league or '[League]'}."),
         "credit_text": (ed.credit_notes if ed and ed.credit_notes
                         else "Credit report reviewed. No bankruptcies, no judgments, no tax liens on file."),
+        # Section VII (Contract Analysis) only. Section V (Project Sponsorship)
+        # deliberately does NOT show the contract notes — Lauren, 2026-07-06.
         "contract_notes": ed.contract_notes if ed else "",
-        "contract_text": ed.contract_notes if ed else "",
         "cf_html": _cf_rows_html(cf),
         "uses_html": _uses_of_funds_html(uof),
         "pfs_html": _pfs_html(ed, facility_due, salary),
