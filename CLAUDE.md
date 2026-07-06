@@ -101,8 +101,10 @@ redaction are load-bearing. Keep them consistent with the rules above.
 
 ## Section V — Project Sponsorship research
 
-Section V describes the ATHLETE (background, career, contract history, career
-earnings), not just the facility. After document extraction, `extraction.py`
+Section V describes the ATHLETE and their playing career ONLY (background,
+league career, contract history, career earnings) — it must never mention the
+loan, facility, funds, or use of proceeds (Lauren, 2026-07-06). After document
+extraction, `extraction.py`
 `_compose_sponsorship` makes a second Claude call that writes the narrative
 from public sources gathered by `research.py`:
 - Wikipedia via httpx (needs the descriptive User-Agent — Wikimedia 403s

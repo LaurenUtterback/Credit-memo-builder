@@ -88,11 +88,15 @@ def wiki_lookup(name: str, sport: str | None) -> tuple[str | None, str | None]:
     if not hits:
         return None, None
 
-    # The hit must at least share the borrower's last name — otherwise the
-    # search matched something unrelated and feeding it to the memo is worse
-    # than saying nothing.
-    last_name = name.split()[-1].lower()
-    title = next((h["title"] for h in hits if last_name in h["title"].lower()), None)
+    # Prefer a title carrying the borrower's FULL name; fall back to the last
+    # name. A hit sharing neither means the search matched something unrelated,
+    # and feeding it to the memo is worse than saying nothing.
+    tokens = name.lower().split()
+    last_name = tokens[-1]
+    title = next(
+        (h["title"] for h in hits if all(t in h["title"].lower() for t in tokens)),
+        None,
+    ) or next((h["title"] for h in hits if last_name in h["title"].lower()), None)
     if not title:
         return None, None
 
@@ -119,7 +123,8 @@ def spotrac_lookup(name: str, league: str | None,
     from playwright.sync_api import sync_playwright  # imported lazily; heavy dep
 
     slug = _league_slug(league, sport)
-    last_name = name.split()[-1].lower()
+    tokens = name.lower().split()
+    last_name = tokens[-1]
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -134,8 +139,15 @@ def spotrac_lookup(name: str, league: str | None,
                 "els => els.map(e => ({href: e.href, text: (e.innerText || '').trim()}))",
             )
             matches = [c for c in candidates if last_name in c["text"].lower()]
+            # Full-name matches first: a sibling or teammate sharing the
+            # surname (e.g. Luke Hughes vs Jack Hughes, both NJ Devils) can
+            # otherwise outrank the borrower in Spotrac's result order and
+            # would pass the league check below.
+            full = [c for c in matches
+                    if all(t in c["text"].lower() for t in tokens)]
+            ordered = full + [c for c in matches if c not in full]
 
-            for cand in matches[:4]:
+            for cand in ordered[:4]:
                 page.goto(cand["href"], wait_until="domcontentloaded", timeout=45000)
                 page.wait_for_timeout(2500)
                 # Player URLs are league-scoped (spotrac.com/<league>/player/...);
