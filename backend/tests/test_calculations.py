@@ -481,6 +481,22 @@ def test_typed_deal_terms_override_extracted():
     assert "$4,435,000" not in html
 
 
+# --- Section VII: total contract remaining ---------------------------------
+
+def test_contract_remaining_renders_in_section_vii():
+    terms = DealTerms(name="Test Borrower", loan=4_435_000, salary=10_000_000)
+    ed = Extraction(salary=10_000_000, contract_remaining=39_500_000)
+    html = memo_service.render_html(terms, ed, [])
+    assert "Total Contract Remaining" in html
+    assert "$39,500,000" in html
+
+
+def test_contract_remaining_row_absent_when_not_extracted():
+    terms = DealTerms(name="Test Borrower", loan=4_435_000, salary=10_000_000)
+    html = memo_service.render_html(terms, Extraction(salary=10_000_000), [])
+    assert "Total Contract Remaining" not in html
+
+
 # --- Memo rendering smoke test --------------------------------------------
 
 def test_render_html_contains_key_figures(alvarado):

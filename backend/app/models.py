@@ -72,7 +72,8 @@ class Extraction(BaseModel):
     drivers_license: Optional[str] = None
     agent: Optional[str] = None
 
-    salary: float = 0.0               # GUARANTEED season compensation (base + guaranteed annual bonuses)
+    salary: float = 0.0               # GUARANTEED season compensation (base + this season's guaranteed bonus/installment)
+    contract_remaining: float = 0.0   # total remaining contract value (all remaining seasons)
     other_income: float = 0.0
     total_income: float = 0.0
     federal_taxes: float = 0.0        # captured but NOT used (taxes computed at 45%)

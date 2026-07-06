@@ -304,6 +304,8 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "months": calc.loan_term_months(ed, amort),
         "loan_money": _money(loan),
         "salary_money": _money(salary),
+        "contract_remaining_money": (_money(ed.contract_remaining)
+                                     if ed and ed.contract_remaining else ""),
         "interest_money": _money(amort_for_tpl["interest"]),
         "ltc": f"{ltc:.1f}",
         "sponsor_text": (ed.sponsorship_narrative if ed and ed.sponsorship_narrative

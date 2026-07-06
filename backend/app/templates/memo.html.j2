@@ -81,8 +81,8 @@ ul.tight{margin:3pt 0 7pt;padding-left:18pt;}ul.tight li{margin-bottom:3pt;}
 <p class="note-fine">Disbursement amounts are estimates sourced from the deal documents; confirm against the final settlement statement.</p></section>
 <section class="section"><h2 class="sec"><span class="num">VII</span>Contract Analysis</h2>
 {% if contract_notes %}<p>{{ contract_notes }}</p>{% endif %}
-<p>{{ name }} has a fully guaranteed season salary of <strong>{{ salary_money }}</strong> with the {{ team }}. The guaranteed season salary serves as the sole underwriting basis for this facility.</p>
-<table><thead><tr><th>Season</th><th class="num-col">Base Salary</th><th>Status</th></tr></thead><tbody><tr class="total"><td><strong>Underwriting Basis (Guaranteed Only)</strong></td><td class="num-col"><strong>{{ salary_money }}</strong></td><td>Fully Guaranteed</td></tr></tbody></table>
+<p>{{ name }} has a fully guaranteed season salary of <strong>{{ salary_money }}</strong> with the {{ team }}.{% if contract_remaining_money %} The total remaining value of the contract is <strong>{{ contract_remaining_money }}</strong>.{% endif %} The guaranteed season salary serves as the sole underwriting basis for this facility.</p>
+<table><thead><tr><th>Season</th><th class="num-col">Base Salary</th><th>Status</th></tr></thead><tbody>{% if contract_remaining_money %}<tr><td>Total Contract Remaining</td><td class="num-col">{{ contract_remaining_money }}</td><td>All Remaining Seasons</td></tr>{% endif %}<tr class="total"><td><strong>Underwriting Basis (Guaranteed Only)</strong></td><td class="num-col"><strong>{{ salary_money }}</strong></td><td>Fully Guaranteed</td></tr></tbody></table>
 <p class="note-fine">Figures reflect guaranteed compensation only, per South River Capital underwriting policy.</p></section>
 <div class="pg-footer"><span>South River Capital — Credit Memorandum</span><span>Page 3 of 6</span></div>
 </div>

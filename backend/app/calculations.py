@@ -27,10 +27,15 @@ Underwriting rules encoded here
     the guaranteed base salary PLUS any bonus that is guaranteed and paid
     every year of the contract (e.g. annual signing-bonus installments,
     guaranteed yearly roster bonuses). Non-guaranteed incentives, one-time
-    bonuses, and endorsements stay excluded. Reference example: $1,000,000
-    base + $9,000,000 guaranteed annual bonus & commission = $10,000,000
-    salary (never the base alone, never the $39,500,000 remaining contract
-    value, and the bonus is not double-counted as other income).
+    bonuses, and endorsements stay excluded. When installments differ season
+    to season, the amount used is the one SCHEDULED FOR THAT SPECIFIC
+    current/upcoming season — never an average, never another season's.
+    Reference example: $1,000,000 base + $9,000,000 guaranteed bonus
+    scheduled for the season = $10,000,000 salary (never the base alone,
+    never the $39,500,000 remaining contract value, and the bonus is not
+    double-counted as other income). The total remaining contract value is
+    captured separately (Extraction.contract_remaining) and shown in
+    Section VII; it is display-only and feeds no calculation.
 10. LTC (Loan-to-Contract) = loan amount / guaranteed earnings.
 11. Taxes are NEVER a PFS liability. Even when the Personal Financial Statement
     reports an estimated tax figure (e.g. "Taxes (Est of 35% of ...)"), it is
