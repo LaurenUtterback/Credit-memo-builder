@@ -491,6 +491,24 @@ def test_contract_remaining_renders_in_section_vii():
     assert "$39,500,000" in html
 
 
+def test_contract_remaining_is_the_ltc_and_section_i_basis():
+    # Rule 10: with a remaining contract value, Section I's "advance against"
+    # figure and the LTC guaranteed earnings both use it, not the season salary.
+    terms = DealTerms(name="Test Borrower", loan=4_435_000, salary=8_500_000)
+    ed = Extraction(salary=8_500_000, contract_remaining=39_500_000)
+    html = memo_service.render_html(terms, ed, [])
+    assert "advance against <strong>$39,500,000</strong> in guaranteed salary" in html
+    assert "$39,500,000 guaranteed earnings = <strong>11.2%</strong>" in html
+    assert "52.2" not in html  # loan / season salary must no longer drive LTC
+
+
+def test_ltc_falls_back_to_season_salary_without_contract_remaining():
+    terms = DealTerms(name="Test Borrower", loan=4_435_000, salary=8_500_000)
+    html = memo_service.render_html(terms, Extraction(salary=8_500_000), [])
+    assert "advance against <strong>$8,500,000</strong> in guaranteed salary" in html
+    assert "$8,500,000 guaranteed earnings = <strong>52.2%</strong>" in html
+
+
 def test_contract_remaining_row_absent_when_not_extracted():
     terms = DealTerms(name="Test Borrower", loan=4_435_000, salary=10_000_000)
     html = memo_service.render_html(terms, Extraction(salary=10_000_000), [])

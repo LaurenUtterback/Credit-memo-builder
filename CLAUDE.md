@@ -71,10 +71,14 @@ never silently.
    shows how to pick the installment whose payment date falls in the season
    being underwritten. The total remaining contract value
    is captured separately (`contract_remaining`) and rendered in Section VII
-   (sentence + "Total Contract Remaining" table row); it feeds no calculation.
-   (Changed 2026-07-06: annual guaranteed bonuses used to be excluded; now
-   they are added into salary.)
-10. LTC (Loan-to-Contract) = loan amount / guaranteed earnings.
+   (sentence + "Total Contract Remaining" table row). (Changed 2026-07-06:
+   annual guaranteed bonuses used to be excluded; now they are added into
+   salary.)
+10. LTC (Loan-to-Contract) = loan amount / guaranteed earnings, where
+    guaranteed earnings is the TOTAL REMAINING contract value when extracted
+    (`contract_remaining`), else the guaranteed season salary. Section I's
+    "advance against $X in guaranteed salary" figure uses the same basis
+    (Lauren, 2026-07-06). The cash flow still runs on the season salary.
 11. The memo must NOT contain the phrase "general business purposes".
 12. SSN/Tax ID is only ever stored/shown as the last 4 digits (XXX-XX-1234).
 13. Taxes are NEVER a PFS liability. Even when the PFS reports an estimated tax

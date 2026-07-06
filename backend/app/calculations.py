@@ -34,9 +34,13 @@ Underwriting rules encoded here
     scheduled for the season = $10,000,000 salary (never the base alone,
     never the $39,500,000 remaining contract value, and the bonus is not
     double-counted as other income). The total remaining contract value is
-    captured separately (Extraction.contract_remaining) and shown in
-    Section VII; it is display-only and feeds no calculation.
-10. LTC (Loan-to-Contract) = loan amount / guaranteed earnings.
+    captured separately (Extraction.contract_remaining), shown in Section
+    VII, and serves as the guaranteed-earnings basis for rule 10.
+10. LTC (Loan-to-Contract) = loan amount / guaranteed earnings, where
+    guaranteed earnings is the TOTAL REMAINING contract value when the
+    documents provide one (contract_remaining), else the guaranteed season
+    salary. Section I's "advance against $X in guaranteed salary" states the
+    same figure. The cash flow (rule 1) stays on the season salary.
 11. Taxes are NEVER a PFS liability. Even when the Personal Financial Statement
     reports an estimated tax figure (e.g. "Taxes (Est of 35% of ...)"), it is
     excluded from Total Liabilities and from Net Worth.

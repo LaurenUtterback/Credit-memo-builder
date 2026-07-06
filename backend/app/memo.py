@@ -252,7 +252,12 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
 
     cf = calc.build_cash_flow(ed, amort, loan, salary)
     facility_due = calc.facility_total(ed, amort, loan)
-    ltc = calc.calc_ltc(loan, salary)
+    # Section I's "advance against ..." figure and the LTC's guaranteed
+    # earnings use the TOTAL REMAINING contract value when the documents
+    # provide one (Lauren, 2026-07-06), falling back to the season salary.
+    # The cash flow and Section VII stay on the season salary.
+    guar_basis = (ed.contract_remaining if ed and ed.contract_remaining else 0) or salary
+    ltc = calc.calc_ltc(loan, guar_basis)
     uof = calc.calc_uses_of_funds(ed.uses_of_funds if ed else None, loan, fee)
 
     amort_for_tpl = amort or {"rows": [], "interest": 0, "balloon": 0, "months": 0}
@@ -304,6 +309,7 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "months": calc.loan_term_months(ed, amort),
         "loan_money": _money(loan),
         "salary_money": _money(salary),
+        "guar_basis_money": _money(guar_basis),
         "contract_remaining_money": (_money(ed.contract_remaining)
                                      if ed and ed.contract_remaining else ""),
         "interest_money": _money(amort_for_tpl["interest"]),
