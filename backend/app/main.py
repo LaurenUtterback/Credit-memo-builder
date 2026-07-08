@@ -30,6 +30,11 @@ from .pa_models import PAExtraction, PARequest, PATerms, BreakdownResult
 from . import pa_extraction as pa_extraction_service
 from . import pa_agreement as pa_agreement_service
 from . import pa_breakdown as pa_breakdown_service
+from .loandocs_models import LoanDocsRequest, SettlementSheetResult
+from . import loandocs as loandocs_service
+from . import loandocs_sheet as loandocs_sheet_service
+from .loandocs_extraction import TeamContractExtraction
+from . import loandocs_extraction as loandocs_extraction_service
 
 # Load the project-root .env so the Claude usage token (CLAUDE_CODE_OAUTH_TOKEN)
 # is available however the server is launched. This does NOT rely on uvicorn's
@@ -178,6 +183,87 @@ def pa_docx(req: PARequest) -> Response:
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{_pa_filename(req.terms, "docx")}"'},
+    )
+
+
+# --- Loan Documents Builder -------------------------------------------------
+
+@app.get("/api/loandocs/defaults")
+def loandocs_defaults() -> dict:
+    """SRC bank/wire defaults for the Payment Direction Letter (from .env)."""
+    return loandocs_service.bank_defaults()
+
+
+@app.post("/api/loandocs/extract", response_model=TeamContractExtraction)
+def loandocs_extract(docs: list[UploadedDoc]) -> TeamContractExtraction:
+    """Extract Team & Contract fields (team name/address, league, contract
+    title and date) from an uploaded player contract or other deal documents."""
+    if not docs:
+        raise HTTPException(status_code=400, detail="No documents provided.")
+    try:
+        return loandocs_extraction_service.extract_documents(docs)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/loandocs/settlement", response_model=SettlementSheetResult)
+def loandocs_settlement(docs: list[UploadedDoc]) -> SettlementSheetResult:
+    """Parse the deal's Balloon / Fully Amortized workbook into the Memo of
+    Settlement fee lines and the Note's Exhibit A repayment schedule."""
+    import base64
+
+    xlsx = next(
+        (d for d in docs
+         if d.filename.lower().endswith((".xlsx", ".xlsm"))
+         or "spreadsheet" in d.mime or "excel" in d.mime),
+        docs[0] if docs else None,
+    )
+    if xlsx is None:
+        raise HTTPException(status_code=400, detail="No spreadsheet provided.")
+    try:
+        data = base64.b64decode(xlsx.b64)
+        return SettlementSheetResult(**loandocs_sheet_service.parse_settlement_workbook(data))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - surface parse failures cleanly
+        raise HTTPException(status_code=422,
+                            detail=f"Could not read the workbook: {exc}") from exc
+
+
+def _loandocs_filename(req: LoanDocsRequest, ext: str) -> str:
+    return f"Loan_Documents_{_safe_name(req.terms.borrower_name or 'Borrower')}.{ext}"
+
+
+@app.post("/api/loandocs/html")
+def loandocs_html(req: LoanDocsRequest) -> Response:
+    html = loandocs_service.render_html(req.terms, req.include)
+    return Response(content=html, media_type="text/html")
+
+
+@app.post("/api/loandocs/pdf")
+def loandocs_pdf(req: LoanDocsRequest) -> Response:
+    html = loandocs_service.render_html(req.terms, req.include)
+    try:
+        pdf = memo_service.render_pdf(html, footer_text=loandocs_service.FOOTER_TEXT)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{_loandocs_filename(req, "pdf")}"'},
+    )
+
+
+@app.post("/api/loandocs/word")
+def loandocs_word(req: LoanDocsRequest) -> Response:
+    html = loandocs_service.render_html(req.terms, req.include)
+    doc = memo_service.render_word(html, footer_text=loandocs_service.FOOTER_TEXT)
+    return Response(
+        content=doc,
+        media_type="application/msword",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{_loandocs_filename(req, "doc")}"'},
     )
 
 

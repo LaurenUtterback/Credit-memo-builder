@@ -35,3 +35,4 @@ logs/
 backend/tools/
 
 frontend/public/_bd_test.xlsx
+.claude/
