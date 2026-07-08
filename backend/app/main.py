@@ -33,7 +33,7 @@ from . import pa_breakdown as pa_breakdown_service
 from .loandocs_models import LoanDocsRequest, SettlementSheetResult
 from . import loandocs as loandocs_service
 from . import loandocs_sheet as loandocs_sheet_service
-from .loandocs_extraction import TeamContractExtraction
+from .loandocs_extraction import TeamContractExtraction, MemoDealExtraction
 from . import loandocs_extraction as loandocs_extraction_service
 
 # Load the project-root .env so the Claude usage token (CLAUDE_CODE_OAUTH_TOKEN)
@@ -202,6 +202,18 @@ def loandocs_extract(docs: list[UploadedDoc]) -> TeamContractExtraction:
         raise HTTPException(status_code=400, detail="No documents provided.")
     try:
         return loandocs_extraction_service.extract_documents(docs)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/loandocs/memo", response_model=MemoDealExtraction)
+def loandocs_memo(docs: list[UploadedDoc]) -> MemoDealExtraction:
+    """Read a previously generated credit memorandum (PDF is best) and return
+    the deal-level fields for the closing documents."""
+    if not docs:
+        raise HTTPException(status_code=400, detail="No documents provided.")
+    try:
+        return loandocs_extraction_service.extract_memo(docs)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

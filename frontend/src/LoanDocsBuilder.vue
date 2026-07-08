@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { loanDocsDefaults, loanDocsHtml, loanDocsDownloadPdf, loanDocsDownloadWord, loanDocsSettlement, loanDocsExtract } from './lib/api.js'
+import { loanDocsDefaults, loanDocsHtml, loanDocsDownloadPdf, loanDocsDownloadWord, loanDocsSettlement, loanDocsExtract, loanDocsReadMemo } from './lib/api.js'
 
 // Deal terms/extraction the user already confirmed on the Credit Memo tab.
 const props = defineProps({
@@ -60,6 +60,11 @@ const sheetStatus = reactive({ type: '', msg: '' })
 const contractFiles = ref([])
 const contractExtracting = ref(false)
 const contractStatus = reactive({ type: '', msg: '' })
+
+// Previously generated credit memo upload state (PDF is best)
+const memoFiles = ref([])
+const memoReading = ref(false)
+const memoStatus = reactive({ type: '', msg: '' })
 
 const previewHtml = ref('')
 const ready = ref(false)
@@ -154,6 +159,59 @@ function pullFromMemo() {
 
   pullMsg.value = '✓ Pulled deal info from the Credit Memo tab — review the fields below'
   ready.value = false
+}
+
+// --- Read a previously generated credit memo -----------------------------------
+function onMemoFiles(e) {
+  const seen = new Set(memoFiles.value.map((f) => f.name + ':' + f.size))
+  for (const f of Array.from(e.target.files)) {
+    const key = f.name + ':' + f.size
+    if (!seen.has(key)) { memoFiles.value.push(f); seen.add(key) }
+  }
+  e.target.value = ''
+}
+
+function removeMemoFile(i) { memoFiles.value.splice(i, 1) }
+
+async function readCreditMemo() {
+  if (!memoFiles.value.length) return
+  memoReading.value = true
+  memoStatus.type = 'info'
+  memoStatus.msg = `Reading the credit memo with Claude…`
+  try {
+    const r = await loanDocsReadMemo(memoFiles.value)
+    // Same behavior as the Participation Agreement tab's memo reader: only
+    // fill fields that are still blank, never overwrite confirmed values.
+    const map = {
+      borrower_name: r.borrower_name,
+      borrower_street: r.borrower_street,
+      borrower_city: r.borrower_city,
+      borrower_state_abbr: r.borrower_state_abbr,
+      borrower_zip: r.borrower_zip,
+      borrower_state: r.borrower_state,
+      occupation: r.occupation,
+      team_name: r.team_name,
+      league: r.league,
+      loan_amount: r.loan_amount,
+      interest_rate: r.interest_rate_pct,
+      origination_fee_pct: r.origination_fee_pct,
+      maturity_date: r.maturity_date,
+      loan_number: r.loan_number,
+    }
+    let filled = 0
+    for (const [k, v] of Object.entries(map)) {
+      if (v && !terms[k]) { terms[k] = v; filled++ }
+    }
+    memoStatus.type = filled ? 'ok' : 'err'
+    memoStatus.msg = filled
+      ? `✓ Filled ${filled} empty field(s) from the memo` + (r.notes ? ` — ${r.notes}` : '')
+      : 'No empty fields to fill (values you typed are never overwritten).' + (r.notes ? ` ${r.notes}` : '')
+    ready.value = false
+  } catch (err) {
+    memoStatus.type = 'err'
+    memoStatus.msg = 'Could not read the memo: ' + err.message
+  }
+  memoReading.value = false
 }
 
 // --- Team & Contract document upload -------------------------------------------
@@ -329,6 +387,19 @@ async function exportWord() {
       <button :disabled="!hasMemo" @click="pullFromMemo">⬇ Pull deal info from Credit Memo</button>
       <p v-if="!hasMemo" class="hint">Nothing to pull yet — fill in the Credit Memo tab (or type the fields below).</p>
       <p v-if="pullMsg" class="status ok">{{ pullMsg }}</p>
+
+      <p class="hint" style="margin-top:10px">…or upload a previously generated credit memo (PDF is best) and read the deal info from it. Only empty fields are filled.</p>
+      <input type="file" multiple @change="onMemoFiles" :disabled="memoReading" />
+      <ul v-if="memoFiles.length" class="filelist">
+        <li v-for="(f, i) in memoFiles" :key="f.name + f.size">
+          <span class="fname">{{ f.name }}</span>
+          <button type="button" class="rm" @click="removeMemoFile(i)" title="Remove">✕</button>
+        </li>
+      </ul>
+      <button type="button" :disabled="!memoFiles.length || memoReading" @click="readCreditMemo">
+        {{ memoReading ? 'Reading…' : 'Read credit memo' }}
+      </button>
+      <p v-if="memoStatus.msg" :class="['status', memoStatus.type]">{{ memoStatus.msg }}</p>
 
       <div class="grid">
         <label>Borrower name <input v-model="terms.borrower_name" /></label>

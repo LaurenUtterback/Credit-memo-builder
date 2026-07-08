@@ -340,3 +340,17 @@ Insurance Policy dropdown (added 2026-07-08, fifth pass):
   of the transactions contemplated hereby."; No = the waived rep. Both texts
   verbatim as she supplied them (the No wording drops the source's trailing
   double period).
+
+Credit memo upload (added 2026-07-08, sixth pass):
+- `POST /api/loandocs/memo` + an uploader in the Loan Documents tab's Step 1
+  (beside the live "Pull deal info" button), mirroring the PA tab's memo
+  reader: drop a previously generated credit memorandum (PDF is best) and
+  Claude returns the deal-level fields (`MemoDealExtraction` in
+  loandocs_extraction.py; the shared `_ask_claude` helper serves both
+  prompts). The memo's one-line "Address (Season)" is split into
+  street/city/state/zip, the state is spelled out for the LSA text, and the
+  occupation is phrased "Professional <Sport> Player".
+- Like the PA reader, it fills ONLY empty fields - typed values are never
+  overwritten. Memos usually lack a funding/closing date and loan number; the
+  prompt says not to guess, and anything notable comes back in `notes`
+  (shown in the status line).

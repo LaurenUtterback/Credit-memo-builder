@@ -193,6 +193,27 @@ export async function loanDocsExtract(files) {
   return res.json()
 }
 
+// Read a previously generated credit memo -> deal-level fields.
+export async function loanDocsReadMemo(files) {
+  const docs = await Promise.all(
+    Array.from(files).map(async (f) => ({
+      filename: f.name,
+      mime: f.type || 'application/octet-stream',
+      b64: await fileToBase64(f),
+    }))
+  )
+  const res = await fetch(`${BASE}/loandocs/memo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(docs),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Could not read the memo (${res.status})`)
+  }
+  return res.json()
+}
+
 // Parse a Balloon / Fully Amortized workbook -> settlement lines + schedule.
 export async function loanDocsSettlement(files) {
   const docs = await Promise.all(

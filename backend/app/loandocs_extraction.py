@@ -56,8 +56,44 @@ Rules:
 - notes: one or two short sentences flagging anything missing, ambiguous, or conflicting (e.g. "Team address not shown in the documents", "Contract is an extension dated ..."). Null if nothing notable."""
 
 
-def extract_documents(docs: list[UploadedDoc]) -> TeamContractExtraction:
-    """Send the uploaded documents to Claude and parse the structured response.
+class MemoDealExtraction(BaseModel):
+    """Deal-level fields read from a previously generated credit memorandum."""
+
+    borrower_name: Optional[str] = None
+    borrower_street: Optional[str] = None
+    borrower_city: Optional[str] = None
+    borrower_state_abbr: Optional[str] = None
+    borrower_zip: Optional[str] = None
+    borrower_state: Optional[str] = None   # spelled out, e.g. "Florida"
+    occupation: Optional[str] = None
+    team_name: Optional[str] = None
+    league: Optional[str] = None
+    loan_amount: Optional[float] = None
+    interest_rate_pct: Optional[float] = None
+    origination_fee_pct: Optional[float] = None
+    maturity_date: Optional[str] = None    # ISO yyyy-mm-dd
+    loan_number: Optional[str] = None
+    notes: Optional[str] = None
+
+
+MEMO_PROMPT = """You have been given a South River Capital CREDIT MEMORANDUM previously generated for a professional-athlete loan (usually a PDF). Read it and extract the deal-level fields needed to prepare the loan CLOSING DOCUMENTS. Return ONLY raw JSON, no markdown, no backticks:
+
+{"borrower_name":null,"borrower_street":null,"borrower_city":null,"borrower_state_abbr":null,"borrower_zip":null,"borrower_state":null,"occupation":null,"team_name":null,"league":null,"loan_amount":0,"interest_rate_pct":0,"origination_fee_pct":0,"maturity_date":null,"loan_number":null,"notes":null}
+
+Rules:
+- Numbers must be plain numbers with no "$", commas, or "%": loan_amount 3300000; interest_rate_pct 12.5; origination_fee_pct 3 means 3%. Use 0 when a number is not stated. Use null for missing strings. Do not invent values.
+- borrower_name: the borrower/athlete the memo is about.
+- The memo's "Address (Season)" line is one string — split it: borrower_street (street line), borrower_city, borrower_state_abbr (2-letter), borrower_zip. borrower_state is the state spelled out from that abbreviation (e.g. FL -> "Florida").
+- occupation: phrase it "Professional <Sport> Player" from how the memo describes the borrower (e.g. "a Professional baseball player" -> "Professional Baseball Player").
+- team_name: the team/employer named in the memo. league: the league (the memo's "Lending Area" or the league named alongside the team).
+- loan_amount: the proposed facility / loan amount. interest_rate_pct: the stated interest rate. origination_fee_pct: the upfront/origination fee percentage.
+- maturity_date: the proposed maturity date, formatted "YYYY-MM-DD". Null if not stated. (The memo usually has no funding/closing date — do not guess one.)
+- loan_number: the loan or account number if shown (digits as a string); memos usually omit it.
+- notes: one or two short sentences flagging anything missing, ambiguous, or conflicting. Null if nothing notable."""
+
+
+def _ask_claude(docs: list[UploadedDoc], prompt: str, max_tokens: int) -> dict:
+    """Send documents + a prompt to Claude and parse the raw-JSON reply.
 
     Authenticates strictly with the Claude subscription usage token (OAuth).
     Raises RuntimeError if no token is set or the response can't be parsed.
@@ -92,12 +128,12 @@ def extract_documents(docs: list[UploadedDoc]) -> TeamContractExtraction:
         }
         for d in docs
     ]
-    content.append({"type": "text", "text": PROMPT})
+    content.append({"type": "text", "text": prompt})
 
     try:
         message = client.messages.create(
             model=EXTRACTION_MODEL,
-            max_tokens=1000,
+            max_tokens=max_tokens,
             system=_CLAUDE_CODE_SYSTEM,
             messages=[{"role": "user", "content": content}],
         )
@@ -116,8 +152,16 @@ def extract_documents(docs: list[UploadedDoc]) -> TeamContractExtraction:
         clean = clean.rsplit("```", 1)[0].strip()
 
     try:
-        data = json.loads(clean)
+        return json.loads(clean)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Could not parse extraction response: {exc}") from exc
 
-    return TeamContractExtraction(**data)
+
+def extract_documents(docs: list[UploadedDoc]) -> TeamContractExtraction:
+    """Team & Contract fields from an uploaded player contract / deal docs."""
+    return TeamContractExtraction(**_ask_claude(docs, PROMPT, max_tokens=1000))
+
+
+def extract_memo(docs: list[UploadedDoc]) -> MemoDealExtraction:
+    """Deal-level fields from a previously generated credit memorandum."""
+    return MemoDealExtraction(**_ask_claude(docs, MEMO_PROMPT, max_tokens=1000))
