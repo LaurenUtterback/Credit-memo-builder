@@ -451,7 +451,7 @@ async function exportWord() {
       <h3 class="grp">Team &amp; contract</h3>
       <label class="chk" style="margin:2px 0 8px">
         <input type="checkbox" v-model="terms.no_team_contract" @change="onNoContractToggle" />
-        Athlete does not have a contract with a Team / employer
+        Athlete does not have a contract with a Team / Employer
       </label>
       <p v-if="terms.no_team_contract" class="hint">The cover page will show “None” for Team / Employer and Contract, and the Payment Direction Letter (addressed to the Team) is left out of the package.</p>
       <template v-if="!terms.no_team_contract">
@@ -469,7 +469,7 @@ async function exportWord() {
         <p v-if="contractStatus.msg" :class="['status', contractStatus.type]">{{ contractStatus.msg }}</p>
       </template>
       <div class="grid">
-        <label>Team / employer <input v-model="terms.team_name" :disabled="terms.no_team_contract" /></label>
+        <label>Team / Employer <input v-model="terms.team_name" :disabled="terms.no_team_contract" /></label>
         <label>League <input v-model="terms.league" placeholder="MLB" :disabled="terms.no_team_contract" /></label>
         <label>Team street address <input v-model="terms.team_street" :disabled="terms.no_team_contract" /></label>
         <label>Team city / state / zip <input v-model="terms.team_city_state_zip" :disabled="terms.no_team_contract" /></label>
@@ -516,7 +516,7 @@ async function exportWord() {
       <h3 class="grp">Documents to include</h3>
       <div class="checks">
         <label v-for="(label, key) in DOC_LABELS" :key="key" class="chk"
-               :title="key === 'letter' && terms.no_team_contract ? 'Not available — the athlete has no Team / employer contract' : ''">
+               :title="key === 'letter' && terms.no_team_contract ? 'Not available — the athlete has no Team / Employer contract' : ''">
           <input type="checkbox" v-model="include[key]" :disabled="key === 'letter' && terms.no_team_contract" /> {{ label }}
         </label>
       </div>
