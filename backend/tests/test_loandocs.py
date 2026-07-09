@@ -98,21 +98,42 @@ def test_prepay_and_default_terms_render():
     assert "is 5 percentage points above" in html
 
 
-def test_no_team_contract_drops_letter_and_blanks_cover():
-    """no_team_contract: the Payment Direction Letter leaves the package even
-    if its include flag is still True, the cover index omits it, and the cover
-    shows "None" for Team / Employer and Contract."""
+def test_no_team_contract_swaps_wording_and_blanks_cover():
+    """no_team_contract: the cover shows "None" for Team / Employer and
+    Contract, and the Contract / Borrower's Employer definitions and the
+    Payment Direction Letter's addressee switch to the league-based wording
+    Lauren supplied 2026-07-09 (year falls back to the closing year)."""
     terms = _terms()
     terms.no_team_contract = True
-    html = render_html(terms, LoanDocsInclude())  # include.letter defaults True
-    assert "Payment Direction Letter" not in html
-    cover = html.split("Documents in this Package")[1].split("</section>")[0]
-    assert "Payment Direction Letter" not in cover
+    terms.league = "NFL"
+    html = render_html(terms, LoanDocsInclude())
     assert ('<td class="k">Team / Employer</td><td>None</td>') in html
     assert ('<td class="k">Contract</td><td>None</td>') in html
-    # the flag defaults off: the letter renders normally
+    # LSA Exhibit A — Borrower's Employer (closing 2026-07-15 -> year 2026)
+    assert ("means the team that signs the Borrower in the upcoming 2026 "
+            "National Football League.") in html
+    # Contract definition — appears in BOTH the LSA and UCC Exhibit A
+    contract_def = ("Contract means the NFL Professional Contract between "
+                    "Test Player and The National Football League that signs "
+                    "Mr. Test Player to a 2026 Player’s Contract in the "
+                    "upcoming 2026 season")
+    assert html.count(contract_def) == 2
+    # Payment Direction Letter stays in the package, addressed to the league
+    assert "Payment Direction Letter" in html
+    cover = html.split("Documents in this Package")[1].split("</section>")[0]
+    assert "Payment Direction Letter" in cover
+    assert ("The National Football League that signs Mr. Test Player in the "
+            "upcoming 2026 National Football League.") in html
+    assert "TBD (&ldquo;Team&rdquo;)" in html
+    # an explicit season year wins over the closing-date fallback
+    terms.upcoming_season_year = "2027"
+    html2 = render_html(terms, LoanDocsInclude())
+    assert "to a 2027 Player’s Contract in the upcoming 2027 season" in html2
+    # the flag defaults off: team wording renders normally
     normal = render_html(_terms(), LoanDocsInclude())
     assert "Payment Direction Letter" in normal
+    assert "that signs the Borrower in the upcoming" not in normal
+    assert "TBD (&ldquo;Team&rdquo;)" not in normal
     assert ('<td class="k">Team / Employer</td><td>Example Team</td>') in normal
 
 

@@ -76,11 +76,16 @@ class LoanDocTerms(BaseModel):
     default_rate_points: Optional[float] = 5
 
     # Team / contract
-    # True when the athlete has no contract with a team/employer: the cover
-    # page shows "None" for Team / Employer and Contract, and the Payment
-    # Direction Letter (addressed to the Team about the Contract) is dropped
-    # from the package.
+    # True when the athlete has no contract with a team/employer yet: the
+    # cover page shows "None" for Team / Employer and Contract, and the
+    # Contract / Borrower's Employer definitions and the Payment Direction
+    # Letter's addressee switch to "the team that signs the Borrower in the
+    # upcoming <year> <league>" language (Lauren's wording, 2026-07-09) —
+    # driven by the league and upcoming_season_year fields below.
     no_team_contract: bool = False
+    # Season year for the no-team-contract wording ("a 2026 Player's Contract
+    # in the upcoming 2026 season"); blank falls back to the closing year.
+    upcoming_season_year: str = ""
     team_name: str = ""
     team_street: str = ""
     team_city_state_zip: str = ""

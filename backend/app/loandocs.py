@@ -222,12 +222,20 @@ def _split_name(name: str) -> tuple[str, str]:
     return name or "", ""
 
 
-def render_html(terms: LoanDocTerms, include: LoanDocsInclude) -> str:
-    # No team contract -> no Payment Direction Letter (it is addressed to the
-    # Team about the Contract), regardless of the include flag.
-    if terms.no_team_contract:
-        include = include.model_copy(update={"letter": False})
+# Spelled-out league names for the no-team-contract wording ("the team that
+# signs the Borrower in the upcoming 2026 National Football League"). Unknown
+# leagues fall through to whatever was typed in the League field.
+_LEAGUE_FULL = {
+    "NFL": "National Football League",
+    "MLB": "Major League Baseball",
+    "NBA": "National Basketball Association",
+    "NHL": "National Hockey League",
+    "MLS": "Major League Soccer",
+    "WNBA": "Women's National Basketball Association",
+}
 
+
+def render_html(terms: LoanDocTerms, include: LoanDocsInclude) -> str:
     fee_amount = terms.origination_fee_amount
     if fee_amount is None and terms.loan_amount and terms.origination_fee_pct:
         fee_amount = terms.loan_amount * terms.origination_fee_pct / 100
@@ -281,6 +289,11 @@ def render_html(terms: LoanDocTerms, include: LoanDocsInclude) -> str:
         "maturity_date_long": _fmt_long(terms.maturity_date),
         "loan_number": terms.loan_number,
         "no_team_contract": terms.no_team_contract,
+        "league_full": _LEAGUE_FULL.get((terms.league or "").strip().upper(),
+                                        (terms.league or "").strip())
+                       or "________________",
+        "upcoming_season_year": terms.upcoming_season_year.strip() or (
+            str(terms.closing_date.year) if terms.closing_date else "20___"),
         "team_name": terms.team_name or "____________________",
         "team_street": terms.team_street or "____________________",
         "team_city_state_zip": terms.team_city_state_zip or "____________________",
