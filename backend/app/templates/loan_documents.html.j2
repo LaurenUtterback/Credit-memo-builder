@@ -67,8 +67,8 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 <header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Closing Date: <span>{{ closing_date }}</span></div>{% if loan_number %}<div class="dt">Loan No.: <span>{{ loan_number }}</span></div>{% endif %}</div></header>
 <div class="doc-title"><div class="kicker">South River Capital</div><h1>Loan Documents</h1></div>
 <table class="kv two"><tbody>
-<tr><td class="k">Borrower</td><td>{{ borrower_name }}</td><td class="k">Team / Employer</td><td>{{ team_name }}</td></tr>
-<tr><td class="k">Address</td><td>{{ borrower_street }}, {{ borrower_city_state_zip }}</td><td class="k">Contract</td><td>{{ contract_title }} dated {{ contract_date_long }}</td></tr>
+<tr><td class="k">Borrower</td><td>{{ borrower_name }}</td><td class="k">Team / Employer</td><td>{% if no_team_contract %}None{% else %}{{ team_name }}{% endif %}</td></tr>
+<tr><td class="k">Address</td><td>{{ borrower_street }}, {{ borrower_city_state_zip }}</td><td class="k">Contract</td><td>{% if no_team_contract %}None{% else %}{{ contract_title }} dated {{ contract_date_long }}{% endif %}</td></tr>
 <tr><td class="k">Loan Amount</td><td>{{ loan_amount }}</td><td class="k">Interest Rate</td><td>{{ interest_rate }}%</td></tr>
 <tr><td class="k">Closing Date</td><td>{{ closing_date }}</td><td class="k">Maturity Date</td><td>{{ maturity_date_long }}</td></tr>
 </tbody></table>

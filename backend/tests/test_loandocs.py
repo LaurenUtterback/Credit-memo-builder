@@ -98,6 +98,24 @@ def test_prepay_and_default_terms_render():
     assert "is 5 percentage points above" in html
 
 
+def test_no_team_contract_drops_letter_and_blanks_cover():
+    """no_team_contract: the Payment Direction Letter leaves the package even
+    if its include flag is still True, the cover index omits it, and the cover
+    shows "None" for Team / Employer and Contract."""
+    terms = _terms()
+    terms.no_team_contract = True
+    html = render_html(terms, LoanDocsInclude())  # include.letter defaults True
+    assert "Payment Direction Letter" not in html
+    cover = html.split("Documents in this Package")[1].split("</section>")[0]
+    assert "Payment Direction Letter" not in cover
+    assert ('<td class="k">Team / Employer</td><td>None</td>') in html
+    assert ('<td class="k">Contract</td><td>None</td>') in html
+    # the flag defaults off: the letter renders normally
+    normal = render_html(_terms(), LoanDocsInclude())
+    assert "Payment Direction Letter" in normal
+    assert ('<td class="k">Team / Employer</td><td>Example Team</td>') in normal
+
+
 def test_insurance_policy_definition_waived_by_default():
     """No Insurance Policy (default): the sports template's waived wording,
     verbatim — including its stray quote mark."""

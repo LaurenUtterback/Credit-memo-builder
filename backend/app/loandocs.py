@@ -223,6 +223,11 @@ def _split_name(name: str) -> tuple[str, str]:
 
 
 def render_html(terms: LoanDocTerms, include: LoanDocsInclude) -> str:
+    # No team contract -> no Payment Direction Letter (it is addressed to the
+    # Team about the Contract), regardless of the include flag.
+    if terms.no_team_contract:
+        include = include.model_copy(update={"letter": False})
+
     fee_amount = terms.origination_fee_amount
     if fee_amount is None and terms.loan_amount and terms.origination_fee_pct:
         fee_amount = terms.loan_amount * terms.origination_fee_pct / 100
@@ -275,6 +280,7 @@ def render_html(terms: LoanDocTerms, include: LoanDocsInclude) -> str:
         "closing_year": terms.closing_date.year if terms.closing_date else "20___",
         "maturity_date_long": _fmt_long(terms.maturity_date),
         "loan_number": terms.loan_number,
+        "no_team_contract": terms.no_team_contract,
         "team_name": terms.team_name or "____________________",
         "team_street": terms.team_street or "____________________",
         "team_city_state_zip": terms.team_city_state_zip or "____________________",

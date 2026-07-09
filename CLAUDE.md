@@ -354,3 +354,20 @@ Credit memo upload (added 2026-07-08, sixth pass):
   overwritten. Memos usually lack a funding/closing date and loan number; the
   prompt says not to guess, and anything notable comes back in `notes`
   (shown in the status line).
+
+No-team-contract checkbox (added 2026-07-09):
+- `LoanDocTerms.no_team_contract` (default False) + a checkbox at the top of
+  the tab's "Team & contract" group ("Athlete does not have a contract with a
+  Team / employer"). When checked: the team/contract fields are disabled and
+  the contract uploader is hidden; the cover page shows "None" for
+  Team / Employer and Contract (a Jinja conditional in the build script's
+  COVER block); and the Payment Direction Letter is dropped from the package
+  — enforced server-side in `render_html` regardless of the include flag
+  (the UI also unchecks and disables its checkbox, restoring it when
+  unchecked). "Pull deal info" and the memo reader skip team/league while
+  checked. Locked by `test_no_team_contract_drops_letter_and_blanks_cover`.
+- The LSA/UCC clauses that reference the Contract (rep 4.1(e), section 5.12,
+  the collateral items and the Contract / Borrower's Employer definitions)
+  still render with blank underscores in this mode - swapping or omitting
+  them needs verbatim no-contract wording from Lauren (same process as the
+  insurance dropdown), flagged 2026-07-09.

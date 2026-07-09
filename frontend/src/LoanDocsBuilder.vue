@@ -19,6 +19,7 @@ const terms = reactive({
   closing_date: '', maturity_date: '', loan_number: '',
   prepay_min_months: 'two', late_charge_pct: 10, exit_fee_pct: 10,
   default_rate_points: 5,
+  no_team_contract: false,
   team_name: '', team_street: '', team_city_state_zip: '',
   league: '', contract_title: '', contract_date: '',
   lender_signatory_title: 'CEO',
@@ -109,8 +110,8 @@ function pullFromMemo() {
   const t = props.memoTerms || {}
   const ed = props.memoExtraction || {}
   if (t.name) terms.borrower_name = t.name
-  if (t.team) terms.team_name = t.team
-  if (t.league) terms.league = t.league
+  if (t.team && !terms.no_team_contract) terms.team_name = t.team
+  if (t.league && !terms.no_team_contract) terms.league = t.league
   if (t.loan) terms.loan_amount = t.loan
   if (t.rate) terms.interest_rate = t.rate
   if (t.fee) terms.origination_fee_pct = t.fee
@@ -190,8 +191,8 @@ async function readCreditMemo() {
       borrower_zip: r.borrower_zip,
       borrower_state: r.borrower_state,
       occupation: r.occupation,
-      team_name: r.team_name,
-      league: r.league,
+      team_name: terms.no_team_contract ? '' : r.team_name,
+      league: terms.no_team_contract ? '' : r.league,
       loan_amount: r.loan_amount,
       interest_rate: r.interest_rate_pct,
       origination_fee_pct: r.origination_fee_pct,
@@ -212,6 +213,14 @@ async function readCreditMemo() {
     memoStatus.msg = 'Could not read the memo: ' + err.message
   }
   memoReading.value = false
+}
+
+// No contract with a Team / employer: the Payment Direction Letter is mailed
+// to the Team about the Contract, so it leaves the package while the box is
+// checked (the backend also drops it server-side).
+function onNoContractToggle() {
+  include.letter = !terms.no_team_contract
+  ready.value = false
 }
 
 // --- Team & Contract document upload -------------------------------------------
@@ -440,25 +449,32 @@ async function exportWord() {
       </div>
 
       <h3 class="grp">Team &amp; contract</h3>
-      <p class="hint">Upload the player's contract (or other deal documents) and Claude fills the team, address, league, and contract details below.</p>
-      <input type="file" multiple @change="onContractFiles" :disabled="contractExtracting" />
-      <ul v-if="contractFiles.length" class="filelist">
-        <li v-for="(f, i) in contractFiles" :key="f.name + f.size">
-          <span class="fname">{{ f.name }}</span>
-          <button type="button" class="rm" @click="removeContractFile(i)" title="Remove">✕</button>
-        </li>
-      </ul>
-      <button type="button" :disabled="!contractFiles.length || contractExtracting" @click="extractContract">
-        {{ contractExtracting ? 'Analyzing…' : 'Extract team & contract with Claude' }}
-      </button>
-      <p v-if="contractStatus.msg" :class="['status', contractStatus.type]">{{ contractStatus.msg }}</p>
+      <label class="chk" style="margin:2px 0 8px">
+        <input type="checkbox" v-model="terms.no_team_contract" @change="onNoContractToggle" />
+        Athlete does not have a contract with a Team / employer
+      </label>
+      <p v-if="terms.no_team_contract" class="hint">The cover page will show “None” for Team / Employer and Contract, and the Payment Direction Letter (addressed to the Team) is left out of the package.</p>
+      <template v-if="!terms.no_team_contract">
+        <p class="hint">Upload the player's contract (or other deal documents) and Claude fills the team, address, league, and contract details below.</p>
+        <input type="file" multiple @change="onContractFiles" :disabled="contractExtracting" />
+        <ul v-if="contractFiles.length" class="filelist">
+          <li v-for="(f, i) in contractFiles" :key="f.name + f.size">
+            <span class="fname">{{ f.name }}</span>
+            <button type="button" class="rm" @click="removeContractFile(i)" title="Remove">✕</button>
+          </li>
+        </ul>
+        <button type="button" :disabled="!contractFiles.length || contractExtracting" @click="extractContract">
+          {{ contractExtracting ? 'Analyzing…' : 'Extract team & contract with Claude' }}
+        </button>
+        <p v-if="contractStatus.msg" :class="['status', contractStatus.type]">{{ contractStatus.msg }}</p>
+      </template>
       <div class="grid">
-        <label>Team / employer <input v-model="terms.team_name" /></label>
-        <label>League <input v-model="terms.league" placeholder="MLB" /></label>
-        <label>Team street address <input v-model="terms.team_street" /></label>
-        <label>Team city / state / zip <input v-model="terms.team_city_state_zip" /></label>
-        <label>Contract title <input v-model="terms.contract_title" :placeholder="(terms.league || 'MLB') + ' Professional Contract'" /></label>
-        <label>Contract date <input v-model="terms.contract_date" type="date" /></label>
+        <label>Team / employer <input v-model="terms.team_name" :disabled="terms.no_team_contract" /></label>
+        <label>League <input v-model="terms.league" placeholder="MLB" :disabled="terms.no_team_contract" /></label>
+        <label>Team street address <input v-model="terms.team_street" :disabled="terms.no_team_contract" /></label>
+        <label>Team city / state / zip <input v-model="terms.team_city_state_zip" :disabled="terms.no_team_contract" /></label>
+        <label>Contract title <input v-model="terms.contract_title" :placeholder="(terms.league || 'MLB') + ' Professional Contract'" :disabled="terms.no_team_contract" /></label>
+        <label>Contract date <input v-model="terms.contract_date" type="date" :disabled="terms.no_team_contract" /></label>
         <label>Lender signatory title <input v-model="terms.lender_signatory_title" /></label>
       </div>
 
@@ -499,8 +515,9 @@ async function exportWord() {
 
       <h3 class="grp">Documents to include</h3>
       <div class="checks">
-        <label v-for="(label, key) in DOC_LABELS" :key="key" class="chk">
-          <input type="checkbox" v-model="include[key]" /> {{ label }}
+        <label v-for="(label, key) in DOC_LABELS" :key="key" class="chk"
+               :title="key === 'letter' && terms.no_team_contract ? 'Not available — the athlete has no Team / employer contract' : ''">
+          <input type="checkbox" v-model="include[key]" :disabled="key === 'letter' && terms.no_team_contract" /> {{ label }}
         </label>
       </div>
     </section>

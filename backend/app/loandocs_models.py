@@ -76,6 +76,11 @@ class LoanDocTerms(BaseModel):
     default_rate_points: Optional[float] = 5
 
     # Team / contract
+    # True when the athlete has no contract with a team/employer: the cover
+    # page shows "None" for Team / Employer and Contract, and the Payment
+    # Direction Letter (addressed to the Team about the Contract) is dropped
+    # from the package.
+    no_team_contract: bool = False
     team_name: str = ""
     team_street: str = ""
     team_city_state_zip: str = ""
