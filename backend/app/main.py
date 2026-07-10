@@ -7,6 +7,7 @@ POST /api/extract          - upload documents, get structured extraction back
 POST /api/memo/html        - render memo as HTML
 POST /api/memo/pdf         - render memo as PDF (download)
 POST /api/memo/word        - render memo as Word .doc (download)
+POST /api/binder/pdf       - merge executed PDFs into an indexed closing binder
 
 Interactive API docs are auto-generated at /docs (Swagger) and /redoc.
 
@@ -35,6 +36,8 @@ from . import loandocs as loandocs_service
 from . import loandocs_sheet as loandocs_sheet_service
 from .loandocs_extraction import TeamContractExtraction, MemoDealExtraction
 from . import loandocs_extraction as loandocs_extraction_service
+from .binder_models import BinderRequest
+from . import binder as binder_service
 
 # Load the project-root .env so the Claude usage token (CLAUDE_CODE_OAUTH_TOKEN)
 # is available however the server is launched. This does NOT rely on uvicorn's
@@ -276,6 +279,27 @@ def loandocs_word(req: LoanDocsRequest) -> Response:
         media_type="application/msword",
         headers={"Content-Disposition":
                  f'attachment; filename="{_loandocs_filename(req, "doc")}"'},
+    )
+
+
+# --- Closing Binder -----------------------------------------------------------
+
+@app.post("/api/binder/pdf")
+def binder_pdf(req: BinderRequest) -> Response:
+    """Merge the uploaded executed documents into one indexed closing binder."""
+    if not req.documents:
+        raise HTTPException(status_code=400, detail="No documents provided.")
+    try:
+        pdf = binder_service.build_binder(req.info, req.documents, req.tab_pages)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    name = _safe_name(req.info.borrower_name)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="Closing_Binder_{name}.pdf"'},
     )
 
 

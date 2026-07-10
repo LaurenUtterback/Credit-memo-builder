@@ -3,15 +3,17 @@ import { ref, reactive, computed } from 'vue'
 import { extractDocuments, memoHtml, downloadPdf, downloadWord } from './lib/api.js'
 import PaBuilder from './PaBuilder.vue'
 import LoanDocsBuilder from './LoanDocsBuilder.vue'
+import ClosingBinderBuilder from './ClosingBinderBuilder.vue'
 
 // which builder is showing: 'memo' (credit memo), 'pa' (participation
-// agreement) or 'loandocs' (closing document package)
+// agreement), 'loandocs' (closing document package) or 'binder' (closing binder)
 const view = ref('memo')
 
 const TAB_TAGS = {
   memo: 'Credit Memorandum Builder',
   pa: 'Participation Agreement Builder',
   loandocs: 'Loan Documents Builder',
+  binder: 'Closing Binder Builder',
 }
 
 // --- state -----------------------------------------------------------------
@@ -125,11 +127,13 @@ async function exportWord() {
         <button :class="['tab', { active: view === 'memo' }]" @click="view = 'memo'">Credit Memo</button>
         <button :class="['tab', { active: view === 'pa' }]" @click="view = 'pa'">Participation Agreement</button>
         <button :class="['tab', { active: view === 'loandocs' }]" @click="view = 'loandocs'">Loan Documents</button>
+        <button :class="['tab', { active: view === 'binder' }]" @click="view = 'binder'">Closing Binder</button>
       </nav>
     </header>
 
     <PaBuilder v-if="view === 'pa'" :memo-terms="terms" :memo-extraction="extraction" />
     <LoanDocsBuilder v-else-if="view === 'loandocs'" :memo-terms="terms" :memo-extraction="extraction" />
+    <ClosingBinderBuilder v-else-if="view === 'binder'" :memo-terms="terms" :memo-extraction="extraction" />
 
     <template v-else>
     <!-- Step 1: upload + extract -->

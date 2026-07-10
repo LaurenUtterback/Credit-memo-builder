@@ -134,7 +134,7 @@ async function paBlob(path, terms, agreementType) {
   return res.blob()
 }
 
-function triggerDownload(blob, filename) {
+export function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -274,4 +274,29 @@ export async function loanDocsDownloadPdf(terms, include) {
 export async function loanDocsDownloadWord(terms, include) {
   const blob = await loanDocsBlob('/loandocs/word', terms, include)
   triggerDownload(blob, loanDocsFilename(terms, 'doc'))
+}
+
+// --- Closing Binder -----------------------------------------------------------
+
+// Merge the executed PDFs into one indexed binder; returns the PDF blob so the
+// caller can both preview it and save it without generating twice.
+export async function binderPdf(info, docs, tabPages) {
+  const documents = await Promise.all(
+    docs.map(async (d) => ({
+      title: d.title,
+      filename: d.file.name,
+      mime: d.file.type || 'application/pdf',
+      b64: await fileToBase64(d.file),
+    }))
+  )
+  const res = await fetch(`${BASE}/binder/pdf`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ info, documents, tab_pages: tabPages }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Binder generation failed (${res.status})`)
+  }
+  return res.blob()
 }

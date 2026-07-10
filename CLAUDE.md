@@ -377,3 +377,45 @@ No-team-contract checkbox (added 2026-07-09):
   still render with blank underscores in this mode - swapping or omitting
   them needs verbatim no-contract wording from Lauren (same process as the
   insurance dropdown), flagged 2026-07-09.
+
+## Closing Binder
+
+A fourth tool (tab in `App.vue`, `view === 'binder'`) that merges the deal's
+EXECUTED documents — uploaded as PDFs, usually scans of the signed set — into
+one indexed closing-binder PDF. Unlike the other builders it generates no
+clause text: the uploaded documents pass through byte-for-byte. It adds:
+- a cover page in the memo's design (borrower, team, loan amount/number,
+  closing date) with an Index of Documents (tab number, title, "Begins on
+  Page", page count);
+- optionally (default on) a numbered tab page in front of each document, like
+  the tabs of a physical binder;
+- PDF outline bookmarks ("Cover & Index", "Tab N — Title") for navigation.
+
+Backend pieces:
+- `app/binder_models.py` — `BinderDoc` (title + base64 PDF), `BinderInfo`
+  (cover fields), `BinderRequest`.
+- `app/binder.py` — `build_binder()`. The cover/tab pages render from
+  `templates/closing_binder.html.j2` through the SAME Playwright pipeline as
+  the memo (`memo.render_pdf`), then pypdf stitches them together with the
+  uploads and writes the bookmarks. Quirks that must not regress:
+  * The front matter renders with `page_numbers=False` (a `memo.render_pdf`
+    parameter added for this) — Chromium's "Page X of N" would count only the
+    front matter, not the merged documents.
+  * The index's "Begins on Page" depends on how many pages the cover itself
+    takes, so the cover is rendered, measured, and re-rendered until stable.
+  * pypdf bookmarks must be added AFTER their target page exists in the
+    writer, or the destination is dead (resolves to page None).
+  * This template's Jinja env has autoescape ON (unlike loandocs) because
+    document titles are free-text user input.
+- Route: `POST /api/binder/pdf` (400 no docs, 422 unreadable/non-PDF upload
+  naming the file, 501 renderer unavailable). PDF only — there is no Word
+  export of a merged scan set.
+- Tests: `tests/test_binder.py` (page math via the outline bookmarks, filename
+  fallback titles, non-PDF rejection).
+
+Frontend: `frontend/src/ClosingBinderBuilder.vue`. "Pull deal info from Credit
+Memo" copies borrower/team/loan amount/funding date. The PDF uploader
+accumulates files (non-PDFs are skipped with a notice), each row has an
+editable title (defaulting to the cleaned-up filename), ↑/↓ reordering and
+remove; generation previews the binder inline and the download button reuses
+the same blob.

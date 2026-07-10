@@ -39,15 +39,19 @@ _PDF_HEADER_TEMPLATE = "<div></div>"
 _DEFAULT_FOOTER_TEXT = "South River Capital — Credit Memorandum"
 
 
-def _pdf_footer_template(footer_text: str) -> str:
+def _pdf_footer_template(footer_text: str, page_numbers: bool = True) -> str:
     label = footer_text.replace("—", "&mdash;")
+    pages = (
+        '<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>'
+        if page_numbers else "<span></span>"
+    )
     return (
         '<div style="width:100%;box-sizing:border-box;padding:0 0.75in;margin:0;'
         'font-family:Arial,Helvetica,sans-serif;font-size:8px;line-height:1;'
         'letter-spacing:0.08em;color:#8a8a8a;text-transform:uppercase;'
         'display:flex;justify-content:space-between;align-items:center;">'
         f"<span>{label}</span>"
-        '<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>'
+        f"{pages}"
         "</div>"
     )
 
@@ -339,7 +343,8 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
     return _dedupe_professional(html)
 
 
-def render_pdf(html: str, footer_text: str = _DEFAULT_FOOTER_TEXT) -> bytes:
+def render_pdf(html: str, footer_text: str = _DEFAULT_FOOTER_TEXT,
+               page_numbers: bool = True) -> bytes:
     """Render the memo HTML to PDF using headless Chromium via Playwright.
 
     Chromium's print engine honors the template's own ``@page`` rules and
@@ -372,14 +377,14 @@ def render_pdf(html: str, footer_text: str = _DEFAULT_FOOTER_TEXT) -> bytes:
                     print_background=True,
                     display_header_footer=True,
                     header_template=_PDF_HEADER_TEMPLATE,
-                    footer_template=_pdf_footer_template(footer_text),
+                    footer_template=_pdf_footer_template(footer_text, page_numbers),
                     margin={"top": "0.7in", "bottom": "0.6in", "left": "0.75in", "right": "0.75in"},
                 )
             finally:
                 browser.close()
     except Exception as exc:  # browser missing, launch failure, render error
         raise RuntimeError(
-            "PDF rendering failed. If this is the first run, install the browser "
+            f"PDF rendering failed: {exc}. If the browser is missing, install it "
             "with: python -m playwright install chromium"
         ) from exc
     return pdf

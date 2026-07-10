@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Closing Binder — South River Capital — {{ borrower_name }}</title>
+<style>
+:root{--navy:#0f2a43;--navy-2:#1c3d5a;--gold:#b9952b;--ink:#1a1a1a;--ink-soft:#444;--rule:#cdd3da;--rule-strong:#9aa6b2;--paper:#fff;--desk:#e9e7e0;--zebra:#f4f6f8;}
+*{box-sizing:border-box;}html,body{margin:0;padding:0;}
+body{background:var(--desk);font-family:"Times New Roman",Times,serif;font-size:10pt;line-height:1.42;color:var(--ink);-webkit-font-smoothing:antialiased;padding:32px 16px 64px;}
+.page{width:8.5in;background:var(--paper);margin:0 auto 28px;padding:.7in .75in .85in;box-shadow:0 2px 14px rgba(0,0,0,.12);border-radius:2px;position:relative;}
+.docpage{min-height:11in;}
+p{margin:0 0 7pt;text-wrap:pretty;}strong,b{font-weight:bold;}
+h2.sec{font-size:11.5pt;font-weight:bold;color:#000;text-transform:uppercase;letter-spacing:.04em;margin:0 0 8pt;padding-bottom:4pt;border-bottom:1.5pt solid var(--navy);display:flex;align-items:baseline;gap:8pt;}
+.masthead{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid var(--navy);padding-bottom:10pt;margin-bottom:4pt;}
+.brand{display:flex;align-items:center;gap:11px;}.brand .brand-logo{height:50px;width:auto;display:block;background:#fff;padding:5px 8px;border-radius:4px;}
+.doc-meta{text-align:right;font-family:Arial,Helvetica,sans-serif;}
+.doc-meta .dt{font-size:8pt;color:var(--ink-soft);margin-top:6pt;}.doc-meta .dt span{color:var(--ink);font-weight:bold;}
+.doc-title{text-align:center;margin:14pt 0 16pt;}.doc-title .kicker,.cover-mid .kicker{font-family:Arial,Helvetica,sans-serif;font-size:7.5pt;letter-spacing:.4em;color:var(--gold);text-transform:uppercase;font-weight:bold;}
+.doc-title h1{font-size:21pt;font-weight:bold;color:#000;letter-spacing:.04em;margin:5pt 0 0;text-transform:uppercase;}
+/* numbered tab pages */
+.cover-mid{margin-top:3in;text-align:center;}
+.cover-mid h1{font-size:23pt;font-weight:bold;color:#000;letter-spacing:.06em;margin:8pt 0 0;text-transform:uppercase;}
+.cover-rule{width:1.6in;border-bottom:2pt solid var(--gold);margin:16pt auto;}
+.cover-borrower{font-size:13pt;font-weight:bold;margin:0 0 3pt;}
+.cover-role{font-family:Arial,Helvetica,sans-serif;font-size:7.5pt;letter-spacing:.25em;text-transform:uppercase;color:var(--ink-soft);margin:0;}
+table{width:100%;border-collapse:collapse;margin:4pt 0 6pt;font-size:9.5pt;}
+th,td{border:.75pt solid var(--rule);padding:3.5pt 7pt;vertical-align:top;text-align:left;}
+thead th{background:var(--navy);color:#fff;font-family:Arial,Helvetica,sans-serif;font-size:7.5pt;font-weight:bold;letter-spacing:.05em;text-transform:uppercase;border-color:var(--navy-2);}
+table.kv td.k{width:30%;background:#f1f4f7;font-weight:bold;color:#000;white-space:nowrap;}
+table.kv.two td.k{width:18%;}
+.num-col{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.tab-col{text-align:center;font-weight:bold;white-space:nowrap;}
+.zebra tbody tr:nth-child(even) td{background:var(--zebra);}
+.note-fine{font-size:8.5pt;color:var(--ink-soft);}
+.pg-footer{position:absolute;left:.75in;right:.75in;bottom:.42in;display:flex;justify-content:space-between;align-items:center;font-family:Arial,Helvetica,sans-serif;font-size:6.8pt;letter-spacing:.1em;color:#8a8a8a;text-transform:uppercase;border-top:.75pt solid var(--rule);padding-top:5pt;}
+@page{size:letter;margin:.7in .75in .6in;}
+@media print{body{background:none;padding:0;}.page{width:auto;min-height:0;margin:0;padding:0;box-shadow:none;border-radius:0;}.docpage{break-before:page;}.docpage:first-of-type{break-before:auto;}.pg-footer{display:none;}tr,thead{break-inside:avoid;}h2.sec{break-after:avoid;}th,td,thead th,.brand .brand-logo{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+</style></head>
+<body style="background-color:rgba(255,255,253,0.98)">
+
+<div class="page docpage">
+<header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Closing Date: <span>{{ closing_date }}</span></div>{% if loan_number %}<div class="dt">Loan No.: <span>{{ loan_number }}</span></div>{% endif %}</div></header>
+<div class="doc-title"><div class="kicker">South River Capital</div><h1>Closing Binder</h1></div>
+<table class="kv two"><tbody>
+<tr><td class="k">Borrower</td><td>{{ borrower_name }}</td><td class="k">Team / Employer</td><td>{{ team_name }}</td></tr>
+<tr><td class="k">Loan Amount</td><td>{{ loan_amount }}</td><td class="k">Loan No.</td><td>{{ loan_number or "—" }}</td></tr>
+<tr><td class="k">Closing Date</td><td>{{ closing_date }}</td><td class="k">Documents</td><td>{{ doc_count }}</td></tr>
+</tbody></table>
+<section style="margin-top:16pt"><h2 class="sec">Index of Documents</h2>
+<table class="zebra"><thead><tr><th style="width:52px">Tab</th><th>Document</th><th class="num-col" style="width:110px">Begins on Page</th><th class="num-col" style="width:70px">Pages</th></tr></thead><tbody>
+{% for e in entries %}<tr><td class="tab-col">{{ e.tab }}</td><td>{{ e.title }}</td><td class="num-col">{{ e.start }}</td><td class="num-col">{{ e.pages }}</td></tr>
+{% endfor %}</tbody></table>
+<p class="note-fine" style="margin-top:14pt">Assembled by South River Capital, LLC. Each document appears in this binder exactly as executed{% if tab_pages %}, behind its numbered tab{% endif %}; use the bookmarks in your PDF viewer to jump between tabs.</p></section>
+</div>
+{% if tab_pages %}{% for e in entries %}
+<div class="page docpage">
+<header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Closing Date: <span>{{ closing_date }}</span></div>{% if loan_number %}<div class="dt">Loan No.: <span>{{ loan_number }}</span></div>{% endif %}</div></header>
+<div class="cover-mid">
+<div class="kicker">Closing Binder &mdash; Tab {{ e.tab }}</div>
+<h1>{{ e.title }}</h1>
+<div class="cover-rule"></div>
+<p class="cover-borrower">{{ borrower_name }}</p>
+<p class="cover-role">Borrower</p>
+</div>
+</div>
+{% endfor %}{% endif %}
+</body></html>
