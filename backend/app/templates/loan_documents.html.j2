@@ -41,6 +41,7 @@ p.sec-head .mk{display:inline-block;width:.3in;}
 .exhibit{margin-top:22pt;border-top:1.5pt solid var(--navy);padding-top:10pt;break-before:page;page-break-before:always;}
 .ex-title{font-family:Arial,Helvetica,sans-serif;font-size:8pt;letter-spacing:.25em;color:var(--gold);text-transform:uppercase;font-weight:bold;text-align:center;margin:0 0 4pt;}
 /* signature blocks */
+.keep{break-inside:avoid;page-break-inside:avoid;}
 .sig-grid{display:grid;grid-template-columns:1fr 1fr;gap:24pt;margin:20pt 0 8pt;break-inside:avoid;}
 .sig-cap{font-weight:bold;margin:0 0 26pt;}
 .sig-line{border-bottom:1pt solid #000;height:26pt;position:relative;}
@@ -86,6 +87,7 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 <p class="cl">STATE OF ______________________</p>
 <p class="cl">I, {{ borrower_name }}, have applied for a loan, or a series of loans, or for other financial accommodations (the “Credit”) with SOUTH RIVER CAPITAL, LLC (“Lender”). I hereby certify that I am engaged in the following type of business: {{ occupation }}. I hereby further certify that the proceeds of the Credit will be used for the following business and commercial purposes and no other: {{ use_of_proceeds }}.</p>
 <p class="cl">This sworn statement is given to the Lender to induce Lender to grant the Credit to me as a “business entity”, as referred to in the Code of Maryland Regulations Section COMAR 21.01.02.01(14), under which I can agree with Lender to any rate of interest on the Credit.</p>
+<div class="keep">
 
 <p class="cl">Dated: {{ closing_date }}</p>
 <div class="sig-grid">
@@ -99,6 +101,7 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
   <p class="cl">Notary Public, __________________________</p>
   <p class="cl">________________ County, _________&nbsp;&nbsp;My commission expires _______________________.</p>
 </div><div class="sig-col"></div></div>
+</div>
 </div>
 {% endif %}
 {% if include.note %}
@@ -134,6 +137,7 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 <p class="cl just lv1"><span class="mk">b)</span><u>Consent to Extensions, Etc</u>.  From time to time, without affecting any of the obligations of Borrower under this Note, without giving notice to or obtaining the consent of Borrower, and without liability on the part of Lender, Lender may, at Lender’s option, extend the maturity of this Note, or any payment due under this Note, reduce the amount of any payments under this Note, release anyone liable on any amount due under this Note, accept a renewal of this Note, modify the terms of payment of any amounts due under this Note, join in any extension or subordination agreement, release any security for the Note, or take or release any other or additional security.</p>
 <p class="cl just lv1"><span class="mk">c)</span><u>Jury Trial Waiver</u>.  Borrower and Lender (by acceptance of this Note) jointly waive trial by jury in any action or proceeding to which Borrower and any holder of this Note may be parties, arising out of or in any way pertaining to this Note or any of the other Loan Documents.  It is agreed and understood that this waiver constitutes a waiver of trial by jury of all claims against all parties to such actions or proceedings, including claims against parties who are not parties to this Note.  This waiver is knowingly, willingly and voluntarily made by Borrower, and Borrower hereby represents that no representations of fact or opinion have been made by any individual to induce this waiver of trial by jury or to modify or nullify its effect in any way.  Borrower further represents that it has been represented in the signing of this Note and in the making of this waiver by independent legal counsel, selected of its own free will, and that it has had the opportunity to discuss this waiver with counsel.</p>
 <p class="cl fli">IN WITNESS WHEREOF, Borrower has duly executed this Note under seal as of the date first written above.</p>
+<div class="keep">
 
 <div class="sig-grid">
   <div class="sig-col"><p class="sig-cap">WITNESS/ATTEST:</p>
@@ -151,6 +155,7 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
   <p class="sig-name">NOTARY PUBLIC</p>
   <p class="cl">My Commission Expires: ______________________</p>
 </div><div class="sig-col"></div></div>
+</div>
 
 <div class="exhibit">
 <h3 class="ex-title">Exhibit A</h3>
@@ -284,6 +289,7 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 <p class="cl just lv1"><span class="mk">7.18.</span><u>Consent to Jurisdiction</u>.  Borrower consents to the exclusive jurisdiction of any and all state and federal courts in the State of Maryland with jurisdiction over Borrower and Borrower’s assets.  Borrower agrees that such assets shall be used first to satisfy all claims of creditors organized or domiciled in the United States of America, and that no assets of Borrower in the United States of America shall be considered part of any foreign bankruptcy estate.  Borrower agrees that any controversy arising under or in relation to the Note, this Agreement or any of the other Loan Documents shall be litigated exclusively in the State of Maryland.  The state and federal courts and authorities with jurisdiction in the State of Maryland shall have exclusive jurisdiction over all controversies which may arise under or in relation to the Note and any security for the debt evidenced by the Note, including without limitation those controversies relating to the execution, interpretation, breach, enforcement or compliance with the Note, this Agreement or any other issue arising under, related to, or in connection with any of the Loan Documents.  Borrower irrevocably consents to service, jurisdiction, and venue of such courts for any litigation arising from the Note, this Agreement or any other Loan Document, and waives any other venue to which it might be entitled by virtue of domicile, habitual residence or otherwise.</p>
 <p class="cl just lv1"><span class="mk">7.19.</span><u>Jury Trial Waiver</u>.  Borrower and Lender hereby waive trial by jury in any action or proceeding to which Borrower or Lender may be parties, arising out of or in any way pertaining to this Agreement or any of the other Loan Documents.  It is agreed and understood that this waiver constitutes a waiver of trial by jury of all claims against all parties to such actions or proceedings, including claims against parties who are not parties to this Agreement.  This waiver is knowingly, willingly and voluntarily made by Borrower, and Borrower hereby represents that no representations of fact or opinion have been made by any individual to induce this waiver of trial by jury or to in any way modify or nullify its effect.  Borrower further represents that it has been represented in the signing of this Agreement and in the making of this waiver by independent legal counsel, selected of his own free will, and that it has had the opportunity to discuss this waiver with counsel.</p>
 <p class="cl just">IN WITNESS WHEREOF, Borrower and Lender have caused this Agreement to be executed under seal as of the date first above written.</p>
+<div class="keep">
 
 <div class="sig-grid">
   <div class="sig-col"><p class="sig-cap">WITNESS/ATTEST:</p>
@@ -313,6 +319,7 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
   <div class="sig-line sig-seal">(SEAL)</div><p class="sig-name">NOTARY PUBLIC</p>
   <p class="cl">My Commission Expires: ______________________</p>
 </div><div class="sig-col"></div></div>
+</div>
 <div class="exhibit"><h3 class="ex-title">Exhibit A</h3><p class="ctr cl"><b>Definitions</b></p></div>
 <p class="cl just"><u>Account</u> has the meaning ascribed to it in the Pledge Agreement.</p>
 <p class="cl just"><u>Agreement</u> means this Loan and Security Agreement, including all schedules and exhibits hereto, as it may be amended, restated, extended, consolidated or increased from time to time.</p>
@@ -365,6 +372,7 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 <p class="cl fli">All notices or other communications to be provided pursuant to this Guaranty shall be in writing and shall be deemed to be properly served if sent by registered or certified mail or Federal Express or similar courier service with overnight delivery or via professional messenger service (with receipt therefore) or by certified or registered mail, return receipt requested, (i) if to Lender to:  South River Capital, LLC, 1750 Forest Dr, Suite 195, Annapolis, MD 21401, Attention Jim Plack,<b> </b>and (ii) if to Guarantor, at the address set forth below.  All notices or other communications to be provided pursuant to this Guaranty sent by certified or registered mail, return receipt requested, first-class postage prepaid shall be deemed effective when they are mailed, otherwise such notices shall be effective upon receipt.</p>
 <p class="cl fli"><b> </b><b><u>Waiver of Jury Trial</u></b><b>.  TO INDUCE LENDER AND GUARANTOR TO ENTER INTO THIS GUARANTY, LENDER AND GUARANTOR EACH HEREBY WAIVES ANY RIGHT TO A TRIAL BY JURY ON ANY OR ALL ISSUES ARISING IN ANY ACTION OR PROCEEDING BETWEEN LENDERS AND GUARANTOR OR THEIR SUCCESSORS, ASSIGNS, PERSONAL OR LEGAL REPRESENTATIVES AND HEIRS UNDER OR IN CONNECTION WITH THIS GUARANTY OR ANY OF ITS PROVISIONS.  THIS WAIVER IS KNOWINGLY, INTENTIONALLY AND VOLUNTARILY MADE BY LENDERS AND GUARANTOR, AND LENDOR AND GUARANTOR EACH ACKNOWLEDGE THAT NEITHER LENDER NOR GUARANTOR NOR ANY PERSON ACTING ON BEHALF OF LENDER OR GUARANTOR HAS MADE ANY REPRESENTATIONS OF FACT TO INDUCE THIS WAIVER OF TRIAL BY JURY OR IN ANY WAY TO MODIFY OR NULLIFY ITS EFFECT.  LENDER AND GUARANTOR EACH FURTHER ACKNOWLEDGE THAT HE, SHE OR IT HAS HAD THE OPPORTUNITY TO DISCUSS THIS GUARANTEE WITH LEGAL COUNSEL.</b></p>
 <p class="cl">Confession of Judgment. UPON THE OCCURRENCE OF ANY DEFAULT BY GUARANTOR ON ANY OF ITS OBLIGATIONS TO LENDER, THE GUARANTOR AUTHORIZES ANY ATTORNEY ADMITTED TO PRACTICE BEFORE ANY COURT OF RECORD IN THE UNITED STATES TO APPEAR ON BEHALF OF THE GUARANTOR IN ANY COURT HAVING JURISDICTION IN ONE OR MORE PROCEEDINGS, OR BEFORE ANY CLERK THEREOF OR PROTHONOTARY OR OTHER COURT OFFICIAL, AND TO CONFESS JUDGMENT AGAINST THE GUARANTOR, WITHOUT PRIOR NOTICE OR OPPORTUNITY OF THE GUARANTOR FOR PRIOR HEARING, IN FAVOR OF LENDER FOR THE FULL AMOUNT DUE UNDER THIS PROMISSORY NOTE PLUS COURT COSTS AND ATTORNEYS’ FEES OF FIFTEEN PERCENT OF THE TOTAL AMOUNT THEN DUE HEREUNDER. THE GUARANTOR WAIVES THE BENEFIT OF ANY AND EVERY STATUTE, ORDINANCE OR RULE OF COURT WHICH MAY BE LAWFULLY WAIVED CONFERRING UPON THE BORROWER ANY RIGHT OR PRIVILEGE OF EXEMPTION, HOMESTEAD RIGHTS, APPEAL, STAY OF EXECUTION OR SUPPLEMENTARY PROCEEDINGS, INQUISITION, EXTENSION UPON ANY LEVY ON REAL ESTATE OR PERSONAL PROPERTY, AND ANY OTHER RELIEF FROM THE ENFORCEMENT OR IMMEDIATE ENFORCEMENT OF A JUDGMENT OR RELATED PROCEEDINGS ON A JUDGMENT. THE AUTHORITY AND POWER TO APPEAR FOR AND ENTER JUDGMENT AGAINST THE GUARANTOR SHALL NOT BE EXHAUSTED BY ONE OR MORE EXERCISES THEREOF, OR BY ANY IMPERFECT EXERCISE THEREOF, AND SHALL NOT BE EXTINGUISHED BY ANY JUDGMENT ENTERED PURSUANT THERETO; SUCH AUTHORITY AND POWER MAY BE EXERCISED ON ONE OR MORE OCCASIONS FROM TIME TO TIME, IN THE SAME OR DIFFERENT JURISDICTIONS, AS OFTEN AS LENDER SHALL DEEM NECESSARY OR ADVISABLE, FOR ALL OF WHICH THIS PROMISSORY NOTE SHALL BE SUFFICIENT AUTHORITY.  NOTWITHSTANDING THE FOREGOING, THE GUARANTOR SPECIFICALLY AGREES TO THE JURISDICTION OF THE CIRCUIT COURT FOR MONTGOMERY COUNTY, MARYLAND.</p>
+<div class="keep">
 
 <p class="cl just">IN WITNESS WHEREOF, the Guarantor has executed and delivered this Guarantee as of the day and year first above written.</p>
 <p class="cl"><b>Guarantors:</b></p>
@@ -385,6 +393,7 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
   <div class="sig-line"></div><p class="sig-name">Notary Public</p>
   <p class="cl">My commission expires ______________________</p>
 </div><div class="sig-col"></div></div>
+</div>
 </div>
 {% endif %}
 {% if include.settlement %}

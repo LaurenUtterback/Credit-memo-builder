@@ -161,6 +161,22 @@ def test_no_team_contract_swaps_wording_and_blanks_cover():
     assert ('<td class="k">Team / Employer</td><td>Example Team</td>') in normal
 
 
+def test_signature_and_notary_blocks_share_a_keep_wrapper():
+    """Each signature block and its notary acknowledgment are wrapped in a
+    .keep container (break-inside: avoid) so they print on ONE page — the
+    Affidavit, Note, LSA and Guaranty each have one (Lauren, 2026-07-10)."""
+    html = render_html(_terms(), LoanDocsInclude())
+    assert html.count('<div class="keep">') == 4
+    assert ".keep{break-inside:avoid;page-break-inside:avoid;}" in html
+    # the Note's wrapper (2nd) holds both the signature grid and the notary
+    # acknowledgment — split segments: [1]=affidavit, [2]=note, [3]=lsa, ...
+    note_seg = html.split('<div class="keep">')[2]
+    ack = note_seg.index("Acknowledgment")
+    notary = note_seg.index("NOTARY PUBLIC")
+    sig = note_seg.index("BORROWER:")
+    assert sig < ack < notary < note_seg.index("Exhibit A")
+
+
 def test_insurance_policy_definition_waived_by_default():
     """No Insurance Policy (default): the sports template's waived wording,
     verbatim — including its stray quote mark."""
