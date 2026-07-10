@@ -47,10 +47,17 @@ def _num(v):
         return None
     if isinstance(v, (int, float)):
         return float(v)
+    s = str(v).replace("$", "").replace(",", "").strip()
+    # accountant's negatives: "(31,400)" means -31400 (the fee blocks show
+    # deductions in parens, and some workbooks store them as text)
+    neg = s.startswith("(") and s.endswith(")")
+    if neg:
+        s = s[1:-1].strip()
     try:
-        return float(str(v).replace("$", "").replace(",", "").strip())
+        n = float(s)
     except ValueError:
         return None
+    return -n if neg else n
 
 
 def _fmt_date(v) -> str:
@@ -95,8 +102,10 @@ def _parse_fee_block(ws) -> dict | None:
                     continue
                 if amount is None:
                     continue
+                # deduction cells may be stored negative (shown "(31,400)");
+                # the memo model wants positive magnitudes (printed in parens)
                 (post_lines if after_disbursed else lines).append(
-                    {"label": str(label).strip(), "amount": round(amount, 2)})
+                    {"label": str(label).strip(), "amount": abs(round(amount, 2))})
             if net is None:
                 # no "Net to be disbursed" terminator: anything gathered after
                 # the disbursed row is just cells below the block — drop it.

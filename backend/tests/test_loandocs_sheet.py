@@ -75,16 +75,18 @@ def _fully_amortized_workbook() -> bytes:
 def _full_block_workbook() -> bytes:
     """The layout with lines AFTER the to-Borrower subtotal, ending at a
     'Net to be disbursed to Borrower (Est)' row (structure Lauren supplied
-    2026-07-10; amounts here are synthetic)."""
+    2026-07-10; amounts here are synthetic). Deductions are stored the way
+    the sheet DISPLAYS them — negative numbers / "(8,000)" text — and must
+    come back as positive magnitudes."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Balloon"
     ws["G4"], ws["H4"] = "Gross Loan Amount", 1_000_000
-    ws["G5"], ws["H5"] = "Lender Origination Fee (Est)", 40_000
-    ws["G6"], ws["H6"] = "SS Underwriting Fee (Est)", 39_000
-    ws["G7"], ws["H7"] = "Paydown Existing Note (Est)", 850_000
-    ws["G8"], ws["H8"] = "SRC Legal/Closing Costs (Est)", 8_000
-    ws["G9"], ws["H9"] = "SSL Legal/Closing Costs (Est)", 8_000
+    ws["G5"], ws["H5"] = "Lender Origination Fee (Est)", -40_000
+    ws["G6"], ws["H6"] = "SS Underwriting Fee (Est)", -39_000
+    ws["G7"], ws["H7"] = "Paydown Existing Note (Est)", -850_000
+    ws["G8"], ws["H8"] = "SRC Legal/Closing Costs (Est)", "($8,000)"
+    ws["G9"], ws["H9"] = "SSL Legal/Closing Costs (Est)", -8_000
     ws["G10"], ws["H10"] = "To be disbursed to Borrower (Est)", 55_000
     ws["G11"], ws["H11"] = "DDD Insurance (Est)", 34_000
     ws["G12"], ws["H12"] = "Net to be disbursed to Borrower (Est)", 21_000
