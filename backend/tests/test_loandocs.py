@@ -161,6 +161,22 @@ def test_no_team_contract_swaps_wording_and_blanks_cover():
     assert ('<td class="k">Team / Employer</td><td>Example Team</td>') in normal
 
 
+def test_each_document_gets_a_cover_page():
+    """Every included document is preceded by its own cover page (masthead +
+    centered title + borrower), and excluding a document drops its cover too
+    (Lauren, 2026-07-10)."""
+    html = render_html(_terms(), LoanDocsInclude())
+    assert html.count('class="page docpage doc-cover"') == 7
+    assert html.count('<p class="cover-borrower">Test Player</p>') == 7
+    for title in ["Business Entity Affidavit", "Promissory Note",
+                  "Loan and Security Agreement", "Guaranty",
+                  "Memo of Settlement", "UCC Financing Statement",
+                  "Payment Direction Letter"]:
+        assert f"<h1>{title}</h1>" in html.split('class="cover-mid"', 1)[1]
+    fewer = render_html(_terms(), LoanDocsInclude(guaranty=False, ucc=False))
+    assert fewer.count('class="page docpage doc-cover"') == 5
+
+
 def test_signature_and_notary_blocks_share_a_keep_wrapper():
     """Each signature block and its notary acknowledgment are wrapped in a
     .keep container (break-inside: avoid) so they print on ONE page — the

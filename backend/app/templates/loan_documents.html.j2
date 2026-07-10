@@ -15,10 +15,16 @@ h3.sub{font-size:10pt;font-weight:bold;color:#000;margin:14pt 0 6pt;text-transfo
 .doc-meta{text-align:right;font-family:Arial,Helvetica,sans-serif;}
 .doc-meta .conf{font-size:7pt;font-weight:bold;letter-spacing:.18em;color:#fff;background:var(--gold);padding:2pt 6pt;display:inline-block;text-transform:uppercase;}
 .doc-meta .dt{font-size:8pt;color:var(--ink-soft);margin-top:6pt;}.doc-meta .dt span{color:var(--ink);font-weight:bold;}
-.doc-title{text-align:center;margin:14pt 0 16pt;}.doc-title .kicker,.doc-head .kicker{font-family:Arial,Helvetica,sans-serif;font-size:7.5pt;letter-spacing:.4em;color:var(--gold);text-transform:uppercase;font-weight:bold;}
+.doc-title{text-align:center;margin:14pt 0 16pt;}.doc-title .kicker,.doc-head .kicker,.cover-mid .kicker{font-family:Arial,Helvetica,sans-serif;font-size:7.5pt;letter-spacing:.4em;color:var(--gold);text-transform:uppercase;font-weight:bold;}
 .doc-title h1{font-size:21pt;font-weight:bold;color:#000;letter-spacing:.04em;margin:5pt 0 0;text-transform:uppercase;}
 .doc-head{text-align:center;margin:0 0 14pt;padding-bottom:8pt;border-bottom:1.5pt solid var(--navy);}
 .doc-head h1{font-size:15pt;font-weight:bold;color:#000;letter-spacing:.05em;margin:4pt 0 0;text-transform:uppercase;}
+/* per-document cover sheets */
+.cover-mid{margin-top:3in;text-align:center;}
+.cover-mid h1{font-size:23pt;font-weight:bold;color:#000;letter-spacing:.06em;margin:8pt 0 0;text-transform:uppercase;}
+.cover-rule{width:1.6in;border-bottom:2pt solid var(--gold);margin:16pt auto;}
+.cover-borrower{font-size:13pt;font-weight:bold;margin:0 0 3pt;}
+.cover-role{font-family:Arial,Helvetica,sans-serif;font-size:7.5pt;letter-spacing:.25em;text-transform:uppercase;color:var(--ink-soft);margin:0;}
 table{width:100%;border-collapse:collapse;margin:4pt 0 6pt;font-size:9.5pt;}
 th,td{border:.75pt solid var(--rule);padding:3.5pt 7pt;vertical-align:top;text-align:left;}
 thead th{background:var(--navy);color:#fff;font-family:Arial,Helvetica,sans-serif;font-size:7.5pt;font-weight:bold;letter-spacing:.05em;text-transform:uppercase;border-color:var(--navy-2);}
@@ -80,6 +86,16 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 <p class="note-fine" style="margin-top:14pt">Prepared by South River Capital, LLC. These documents follow South River&rsquo;s standard athlete-loan closing set; confirm all terms against the executed versions.</p></section>
 </div>
 {% if include.affidavit %}
+<div class="page docpage doc-cover">
+<header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Closing Date: <span>{{ closing_date }}</span></div>{% if loan_number %}<div class="dt">Loan No.: <span>{{ loan_number }}</span></div>{% endif %}</div></header>
+<div class="cover-mid">
+<div class="kicker">South River Capital &mdash; Loan Documents</div>
+<h1>Business Entity Affidavit</h1>
+<div class="cover-rule"></div>
+<p class="cover-borrower">{{ borrower_name }}</p>
+<p class="cover-role">Borrower</p>
+</div>
+</div>
 <div class="page docpage">
 <div class="doc-head"><div class="kicker">South River Capital</div><h1>Business Entity Affidavit</h1></div>
 <p class="ctr cl"><b>SWORN STATEMENT FOR UNINCORPORATED INDIVIDUAL BUSINESS ENTITY LOANS</b></p>
@@ -105,6 +121,16 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 </div>
 {% endif %}
 {% if include.note %}
+<div class="page docpage doc-cover">
+<header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Closing Date: <span>{{ closing_date }}</span></div>{% if loan_number %}<div class="dt">Loan No.: <span>{{ loan_number }}</span></div>{% endif %}</div></header>
+<div class="cover-mid">
+<div class="kicker">South River Capital &mdash; Loan Documents</div>
+<h1>Promissory Note</h1>
+<div class="cover-rule"></div>
+<p class="cover-borrower">{{ borrower_name }}</p>
+<p class="cover-role">Borrower</p>
+</div>
+</div>
 <div class="page docpage">
 <div class="doc-head"><div class="kicker">South River Capital</div><h1>Promissory Note</h1></div>
 <p class="cl fli">FOR VALUE RECEIVED, (“Borrower”), {{ borrower_name }} promises to pay to the order of SOUTH RIVER CAPITAL, LLC (“Lender”), during regular business hours at Lender’s office at 1750 Forest Drive, Suite 195, Annapolis, MD 21401, or such other place as Lender may from time to time designate, the principal sum of {{ loan_amount }} (“Loan”), with interest thereon at the rate or rates specified below until paid in full, and any and all other sums which may be owing to Lender by Borrower pursuant to this Promissory Note (“Note”), in accordance with the provisions set forth herein. This Note is made pursuant to and in accordance with the Loan and Security Agreement of even dated herewith between Borrower and Lender (as amended from time to time, “Loan Agreement”).  Reference is hereby made to the Loan Agreement for a statement of all of the terms and conditions under which the Loan is made, the terms of which are hereby incorporated herein by reference. Capitalized terms used herein and not otherwise defined herein shall have the meanings ascribed to them in the Loan Agreement.</p>
@@ -168,6 +194,16 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 </div>
 {% endif %}
 {% if include.lsa %}
+<div class="page docpage doc-cover">
+<header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Closing Date: <span>{{ closing_date }}</span></div>{% if loan_number %}<div class="dt">Loan No.: <span>{{ loan_number }}</span></div>{% endif %}</div></header>
+<div class="cover-mid">
+<div class="kicker">South River Capital &mdash; Loan Documents</div>
+<h1>Loan and Security Agreement</h1>
+<div class="cover-rule"></div>
+<p class="cover-borrower">{{ borrower_name }}</p>
+<p class="cover-role">Borrower</p>
+</div>
+</div>
 <div class="page docpage">
 <div class="doc-head"><div class="kicker">South River Capital</div><h1>Loan and Security Agreement</h1></div>
 <p class="cl just">THIS LOAN AND SECURITY AGREEMENT is made as of {{ closing_date }}, by and between {{ borrower_name }} (“Borrower”) and SOUTH RIVER CAPITAL, LLC. (“Lender”).</p>
@@ -360,6 +396,16 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 </div>
 {% endif %}
 {% if include.guaranty %}
+<div class="page docpage doc-cover">
+<header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Closing Date: <span>{{ closing_date }}</span></div>{% if loan_number %}<div class="dt">Loan No.: <span>{{ loan_number }}</span></div>{% endif %}</div></header>
+<div class="cover-mid">
+<div class="kicker">South River Capital &mdash; Loan Documents</div>
+<h1>Guaranty</h1>
+<div class="cover-rule"></div>
+<p class="cover-borrower">{{ borrower_name }}</p>
+<p class="cover-role">Borrower</p>
+</div>
+</div>
 <div class="page docpage">
 <div class="doc-head"><div class="kicker">South River Capital</div><h1>Guaranty</h1></div>
 <p class="cl">In order to induce <b>SOUTH RIVER CAPITAL, LLC</b>,  a Maryland limited liability company ("Lender") to make a certain loan to<b> </b> <b>{{ borrower_name }}, </b>in the amount of <b> {{ loan_amount }} </b>as evidenced by that certain Loan Agreement (the “Loan Agreement”); Commercial Note (the “Note”);   (the Note, and Loan Agreement, are hereinafter collectively referred to as the “Loan Documents”) securing the Note and in consideration thereof, the undersigned (collectively, "Guarantor") hereby unconditionally, absolutely and irrevocably guarantees to Lender, and its successors and assigns, the prompt and full payment and performance by Makers of each and every item, covenant, condition, provision and obligation to be paid, kept, observed or performed by Makers under the  Note and Loan Documents, together with any and all costs and expenses, including reasonable attorneys' fees, which may be incurred by Lenders in connection with any default by Makers under the Loan Documents or enforcing the Loan Documents and/or this Guaranty.  Guarantor expressly acknowledges that he, she or it has reviewed the Loan Documents and understands the same. If there is more than one Guarantor, the terms and conditions of this Guaranty shall apply to all Guarantors jointly and severally.</p>
@@ -397,6 +443,16 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 </div>
 {% endif %}
 {% if include.settlement %}
+<div class="page docpage doc-cover">
+<header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Closing Date: <span>{{ closing_date }}</span></div>{% if loan_number %}<div class="dt">Loan No.: <span>{{ loan_number }}</span></div>{% endif %}</div></header>
+<div class="cover-mid">
+<div class="kicker">South River Capital &mdash; Loan Documents</div>
+<h1>Memo of Settlement</h1>
+<div class="cover-rule"></div>
+<p class="cover-borrower">{{ borrower_name }}</p>
+<p class="cover-role">Borrower</p>
+</div>
+</div>
 <div class="page docpage">
 <div class="doc-head"><div class="kicker">South River Capital</div><h1>Memo of Settlement</h1></div>
 
@@ -416,6 +472,16 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 </div>
 {% endif %}
 {% if include.ucc %}
+<div class="page docpage doc-cover">
+<header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Closing Date: <span>{{ closing_date }}</span></div>{% if loan_number %}<div class="dt">Loan No.: <span>{{ loan_number }}</span></div>{% endif %}</div></header>
+<div class="cover-mid">
+<div class="kicker">South River Capital &mdash; Loan Documents</div>
+<h1>UCC Financing Statement</h1>
+<div class="cover-rule"></div>
+<p class="cover-borrower">{{ borrower_name }}</p>
+<p class="cover-role">Borrower</p>
+</div>
+</div>
 <div class="page docpage">
 <div class="doc-head"><div class="kicker">South River Capital</div><h1>UCC Financing Statement</h1></div>
 
@@ -466,6 +532,16 @@ table.ucc td{border:.75pt solid var(--rule-strong);padding:2.5pt 5pt;}
 </div>
 {% endif %}
 {% if include.letter %}
+<div class="page docpage doc-cover">
+<header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Closing Date: <span>{{ closing_date }}</span></div>{% if loan_number %}<div class="dt">Loan No.: <span>{{ loan_number }}</span></div>{% endif %}</div></header>
+<div class="cover-mid">
+<div class="kicker">South River Capital &mdash; Loan Documents</div>
+<h1>Payment Direction Letter</h1>
+<div class="cover-rule"></div>
+<p class="cover-borrower">{{ borrower_name }}</p>
+<p class="cover-role">Borrower</p>
+</div>
+</div>
 <div class="page docpage">
 <div class="doc-head"><div class="kicker">South River Capital</div><h1>Payment Direction Letter</h1></div>
 
