@@ -32,6 +32,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from pypdf import PdfReader, PdfWriter
 from pypdf.annotations import Link
+from pypdf.generic import ArrayObject, NameObject
 
 from . import memo
 from .binder_models import BinderDoc, BinderInfo
@@ -244,6 +245,13 @@ def build_binder(info: BinderInfo, docs: list[BinderDoc], tab_pages: bool = True
             page_number=row["page"],
             annotation=Link(rect=_link_rect(row), target_page_index=entry["target"]),
         )
+        # pypdf serializes target_page_index as a bare page NUMBER in /Dest,
+        # which is only valid for remote go-to links — Adobe Reader won't
+        # follow it inside the same document. Patch the freshly added
+        # annotation to reference the page object itself.
+        annot = writer.pages[row["page"]]["/Annots"][-1].get_object()
+        annot[NameObject("/Dest")] = ArrayObject([
+            writer.pages[entry["target"]].indirect_reference, NameObject("/Fit")])
 
     writer.add_metadata({
         "/Title": f"Closing Binder — {info.borrower_name or 'Borrower'}",

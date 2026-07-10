@@ -12,9 +12,7 @@ p{margin:0 0 7pt;text-wrap:pretty;}strong,b{font-weight:bold;}
 .brand{display:flex;align-items:center;gap:11px;}.brand .brand-logo{height:50px;width:auto;display:block;background:#fff;padding:5px 8px;border-radius:4px;}
 .doc-meta{text-align:right;font-family:Arial,Helvetica,sans-serif;}
 .doc-meta .dt{font-size:8pt;color:var(--ink-soft);margin-top:6pt;}.doc-meta .dt span{color:var(--ink);font-weight:bold;}
-.doc-head{text-align:center;margin:0 0 14pt;padding-bottom:8pt;border-bottom:1.5pt solid var(--navy);}
-.doc-head .kicker,.cover-mid .kicker{font-family:Arial,Helvetica,sans-serif;font-size:7.5pt;letter-spacing:.4em;color:var(--gold);text-transform:uppercase;font-weight:bold;}
-.doc-head h1{font-size:15pt;font-weight:bold;color:#000;letter-spacing:.05em;margin:4pt 0 0;text-transform:uppercase;}
+.cover-mid .kicker{font-family:Arial,Helvetica,sans-serif;font-size:7.5pt;letter-spacing:.4em;color:var(--gold);text-transform:uppercase;font-weight:bold;}
 /* binder cover + per-document title pages (same design as the loan-docs covers) */
 .cover-mid{margin-top:3in;text-align:center;}
 .cover-mid h1{font-size:23pt;font-weight:bold;color:#000;letter-spacing:.06em;margin:8pt 0 0;text-transform:uppercase;}
@@ -22,13 +20,15 @@ p{margin:0 0 7pt;text-wrap:pretty;}strong,b{font-weight:bold;}
 .cover-borrower{font-size:16pt;font-weight:bold;margin:0 0 6pt;}
 .cover-amount{font-size:13pt;font-weight:bold;color:var(--navy);margin:0 0 10pt;}
 .cover-role{font-family:Arial,Helvetica,sans-serif;font-size:7.5pt;letter-spacing:.25em;text-transform:uppercase;color:var(--ink-soft);margin:0;}
-/* table of contents */
-.toc-hint{text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:8.5pt;color:var(--ink-soft);margin:0 0 16pt;}
+/* table of contents (layout modelled on the executed example binder) */
+.toc-head{text-align:center;margin:18pt 0 6pt;}
+.toc-head h1{font-family:Arial,Helvetica,sans-serif;font-size:22pt;font-weight:bold;color:var(--navy);letter-spacing:.08em;margin:0;text-transform:uppercase;display:inline-block;border-bottom:1.5pt solid var(--navy);padding:0 10pt 5pt;}
+.toc-hint{text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:8.5pt;color:var(--ink-soft);margin:0 0 22pt;}
 .toc{margin-top:8pt;}
-.toc-row{display:flex;align-items:baseline;gap:6pt;padding:5pt 2pt;font-size:11pt;}
+.toc-row{display:flex;align-items:baseline;gap:2pt;padding:7pt 2pt;font-family:Arial,Helvetica,sans-serif;font-size:10.5pt;font-weight:bold;color:var(--ink);}
 .toc-row .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:5.4in;}
-.toc-row .dots{flex:1;border-bottom:1.3pt dotted var(--rule-strong);transform:translateY(-2.5pt);min-width:24pt;}
-.toc-row .pg{font-variant-numeric:tabular-nums;white-space:nowrap;font-family:Arial,Helvetica,sans-serif;font-size:9.5pt;color:var(--ink-soft);}
+.toc-row .dots{flex:1;border-bottom:1.6pt dotted var(--ink-soft);transform:translateY(-2.5pt);min-width:24pt;}
+.toc-row .pg{font-variant-numeric:tabular-nums;white-space:nowrap;font-size:10pt;font-weight:bold;}
 .note-fine{font-size:8.5pt;color:var(--ink-soft);}
 .pg-footer{position:absolute;left:.75in;right:.75in;bottom:.42in;display:flex;justify-content:space-between;align-items:center;font-family:Arial,Helvetica,sans-serif;font-size:6.8pt;letter-spacing:.1em;color:#8a8a8a;text-transform:uppercase;border-top:.75pt solid var(--rule);padding-top:5pt;}
 @page{size:letter;margin:.7in .75in .6in;}
@@ -50,7 +50,7 @@ p{margin:0 0 7pt;text-wrap:pretty;}strong,b{font-weight:bold;}
 {% for page_rows in toc_pages %}
 <div class="page docpage">
 <header class="masthead"><div class="brand"><img class="brand-logo" src="{{ logo }}" alt="South River Capital"></div><div class="doc-meta"><div class="dt">Closing Date: <span>{{ closing_date }}</span></div>{% if loan_number %}<div class="dt">Loan No.: <span>{{ loan_number }}</span></div>{% endif %}</div></header>
-<div class="doc-head"><div class="kicker">South River Capital &mdash; Closing Binder</div><h1>Table of Contents</h1></div>
+<div class="toc-head"><h1>Table of Contents</h1></div>
 {% if loop.first %}<p class="toc-hint">(Click on a section title to jump directly to the page)</p>{% endif %}
 <div class="toc">
 {% for e in page_rows %}<div class="toc-row"><span class="t">{{ e.title }}</span><span class="dots"></span><span class="pg">{{ e.range_label }}</span></div>

@@ -55,10 +55,10 @@ def _toc_links(reader: PdfReader, page_index: int = 1) -> list[int]:
         action = o.get("/A")
         dest = action.get_object().get("/D") if action else o.get("/Dest")
         first = dest.get_object()[0].get_object()
-        # pypdf-written links store the page as a plain number; hand-made
-        # ones (like the source example binder) use an indirect page reference
-        targets.append(int(first) if isinstance(first, (int, float))
-                       else reader.get_page_number(first))
+        # the destination must REFERENCE the page object — a bare page number
+        # is only valid for remote go-to and Adobe Reader won't follow it
+        assert not isinstance(first, (int, float)), "TOC link uses a bare page number"
+        targets.append(reader.get_page_number(first))
     return targets
 
 
