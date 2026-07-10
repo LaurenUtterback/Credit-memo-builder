@@ -23,7 +23,6 @@ class BinderInfo(BaseModel):
     """Deal-level fields shown on the binder's cover page."""
 
     borrower_name: str = ""
-    team_name: str = ""
     loan_amount: Optional[float] = None
     loan_number: str = ""
     closing_date: Optional[date] = None

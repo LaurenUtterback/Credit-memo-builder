@@ -382,40 +382,56 @@ No-team-contract checkbox (added 2026-07-09):
 
 A fourth tool (tab in `App.vue`, `view === 'binder'`) that merges the deal's
 EXECUTED documents — uploaded as PDFs, usually scans of the signed set — into
-one indexed closing-binder PDF. Unlike the other builders it generates no
-clause text: the uploaded documents pass through byte-for-byte. It adds:
-- a cover page in the memo's design (borrower, team, loan amount/number,
-  closing date) with an Index of Documents (tab number, title, "Begins on
-  Page", page count);
-- optionally (default on) a numbered tab page in front of each document, like
-  the tabs of a physical binder;
-- PDF outline bookmarks ("Cover & Index", "Tab N — Title") for navigation.
+one closing-binder PDF. Its structure follows an executed example binder the
+user supplied (kept on the Z: drive — never name the deal here; this repo is
+public), re-dressed in the credit memo's visual design:
+- page 1: a cover page — borrower name, loan amount, "Closing Binder" (plus
+  masthead with closing date / loan number);
+- page 2 (+overflow): a TABLE OF CONTENTS with dot leaders and page ranges
+  ("5-11"), headed "(Click on a section title to jump directly to the page)"
+  — every row is a real /Link annotation that jumps to its section;
+- optionally (default on) a title page in front of each document, in the
+  loan-docs cover-sheet style; the TOC range includes it, and links/bookmarks
+  target it (like the example);
+- PDF outline bookmarks ("Cover", "Table of Contents", one per document).
+
+Unlike the other builders it generates no clause text: the uploaded documents
+pass through byte-for-byte.
 
 Backend pieces:
 - `app/binder_models.py` — `BinderDoc` (title + base64 PDF), `BinderInfo`
   (cover fields), `BinderRequest`.
-- `app/binder.py` — `build_binder()`. The cover/tab pages render from
-  `templates/closing_binder.html.j2` through the SAME Playwright pipeline as
-  the memo (`memo.render_pdf`), then pypdf stitches them together with the
-  uploads and writes the bookmarks. Quirks that must not regress:
-  * The front matter renders with `page_numbers=False` (a `memo.render_pdf`
-    parameter added for this) — Chromium's "Page X of N" would count only the
-    front matter, not the merged documents.
-  * The index's "Begins on Page" depends on how many pages the cover itself
-    takes, so the cover is rendered, measured, and re-rendered until stable.
+- `app/binder.py` — `build_binder()`. The front matter renders from
+  `templates/closing_binder.html.j2` through the same Playwright engine as
+  the memo, in a custom pass (`_render_front`) that ALSO measures each
+  `.toc-row`'s geometry via page.evaluate() before page.pdf(); pypdf then
+  stitches everything together and turns the measured rows into link
+  annotations. Quirks that must not regress:
+  * Screen/print geometry sharing: the measured row offsets are valid in the
+    PDF because the screen `.page` has the same 7in content width and .7in
+    top offset as the printed page. If the template's margins/padding change,
+    update `_MARGIN_TOP`/`_MARGIN_LEFT`/`_link_rect`.
+  * Front-matter pagination is DETERMINISTIC: 1 cover + ceil(n/18) TOC pages
+    (`_TOC_ROWS_PER_PAGE`, rows are single-line nowrap+ellipsis) + n title
+    pages. `build_binder` raises if the render disagrees.
+  * The front matter renders with `page_numbers=False` (a `memo.render_pdf` /
+    `_pdf_footer_template` parameter) — Chromium's "Page X of N" would count
+    only the front matter, not the merged documents.
   * pypdf bookmarks must be added AFTER their target page exists in the
-    writer, or the destination is dead (resolves to page None).
+    writer, or the destination is dead (resolves to page None). Links are
+    written as direct `/Dest` arrays (pypdf `annotations.Link` with
+    `target_page_index`), not /A GoTo actions.
   * This template's Jinja env has autoescape ON (unlike loandocs) because
     document titles are free-text user input.
 - Route: `POST /api/binder/pdf` (400 no docs, 422 unreadable/non-PDF upload
   naming the file, 501 renderer unavailable). PDF only — there is no Word
   export of a merged scan set.
-- Tests: `tests/test_binder.py` (page math via the outline bookmarks, filename
-  fallback titles, non-PDF rejection).
+- Tests: `tests/test_binder.py` (page math via the outline bookmarks, TOC
+  link targets, filename fallback titles, non-PDF rejection).
 
 Frontend: `frontend/src/ClosingBinderBuilder.vue`. "Pull deal info from Credit
-Memo" copies borrower/team/loan amount/funding date. The PDF uploader
-accumulates files (non-PDFs are skipped with a notice), each row has an
-editable title (defaulting to the cleaned-up filename), ↑/↓ reordering and
-remove; generation previews the binder inline and the download button reuses
-the same blob.
+Memo" copies borrower/loan amount/funding date. The PDF uploader accumulates
+files (non-PDFs are skipped with a notice), each row has an editable title
+(defaulting to the cleaned-up filename), ↑/↓ reordering and remove;
+generation previews the binder inline and the download button reuses the
+same blob.

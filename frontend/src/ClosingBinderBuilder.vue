@@ -6,8 +6,7 @@ import { binderPdf, triggerDownload } from './lib/api.js'
 const props = defineProps({ memoTerms: Object, memoExtraction: Object })
 
 const info = reactive({
-  borrower_name: '', team_name: '', loan_amount: null, loan_number: '',
-  closing_date: '',
+  borrower_name: '', loan_amount: null, loan_number: '', closing_date: '',
 })
 const docs = ref([]) // { file, title } — binder order, top to bottom
 const tabPages = ref(true)
@@ -20,7 +19,6 @@ let pdfBlob = null
 function pullFromMemo() {
   const t = props.memoTerms || {}
   if (t.name) info.borrower_name = t.name
-  if (t.team) info.team_name = t.team
   if (t.loan) info.loan_amount = t.loan
   if (t.fund) info.closing_date = t.fund
 }
@@ -86,7 +84,6 @@ function download() {
     <button type="button" class="ghost" style="margin-top:0" @click="pullFromMemo">↩ Pull deal info from Credit Memo</button>
     <div class="grid" style="margin-top:12px">
       <label>Borrower name <input v-model="info.borrower_name" /></label>
-      <label>Team / employer <input v-model="info.team_name" /></label>
       <label>Loan amount <input v-model.number="info.loan_amount" type="number" /></label>
       <label>Loan number <input v-model="info.loan_number" /></label>
       <label>Closing date <input v-model="info.closing_date" type="date" /></label>
@@ -96,12 +93,12 @@ function download() {
   <section class="card">
     <h2><span class="step">2</span> Add the executed documents (PDF)</h2>
     <input type="file" multiple accept="application/pdf,.pdf" @change="onFiles" />
-    <p class="hint">Add the signed PDFs in binder order — reorder below. Each becomes a numbered tab in the index; the titles are editable.</p>
+    <p class="hint">Add the signed PDFs in binder order — reorder below. Each becomes a section in the clickable Table of Contents; the titles are editable.</p>
     <p v-if="notice" class="status err">⚠ {{ notice }}</p>
     <ul v-if="docs.length" class="filelist">
       <li v-for="(d, i) in docs" :key="d.file.name + d.file.size">
-        <span class="tabno">Tab {{ i + 1 }}</span>
-        <input class="title-in" v-model="d.title" title="Shown in the binder index and on the tab page" />
+        <span class="tabno">{{ i + 1 }}.</span>
+        <input class="title-in" v-model="d.title" title="Shown in the Table of Contents and on the section title page" />
         <span class="fname hint">{{ d.file.name }}</span>
         <span class="ord">
           <button type="button" class="mini" :disabled="i === 0" @click="move(i, -1)" title="Move up">↑</button>
@@ -110,7 +107,7 @@ function download() {
         </span>
       </li>
     </ul>
-    <label class="chk"><input type="checkbox" v-model="tabPages" /> Add a numbered tab page in front of each document</label>
+    <label class="chk"><input type="checkbox" v-model="tabPages" /> Add a title page in front of each document</label>
   </section>
 
   <section class="card">

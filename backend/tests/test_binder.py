@@ -1,8 +1,13 @@
 """Closing Binder assembly tests.
 
-The binder renders its cover/index through the real Playwright pipeline and
-merges the uploads with pypdf, so most of these run the pipeline end-to-end
-with tiny generated PDFs and verify the page math via the outline bookmarks.
+The binder renders its cover/TOC/title pages through the real Playwright
+pipeline and merges the uploads with pypdf, so most of these run the pipeline
+end-to-end with tiny generated PDFs and verify the page math via the outline
+bookmarks and the TOC's clickable link annotations.
+
+Binder layout (modelled on an executed example binder): page 1 cover, page 2+
+Table of Contents (every row a link), then per document an optional title
+page followed by the document itself, untouched.
 """
 
 import base64
@@ -37,37 +42,73 @@ def _outline_pages(reader: PdfReader) -> dict[str, int]:
             for item in reader.outline}
 
 
-def test_index_entries_page_math():
+def _toc_links(reader: PdfReader, page_index: int = 1) -> list[int]:
+    """Target page (0-indexed) of every /Link GoTo annotation on a page."""
+    annots = reader.pages[page_index].get("/Annots")
+    if annots is None:
+        return []
+    targets = []
+    for a in annots.get_object():
+        o = a.get_object()
+        if o.get("/Subtype") != "/Link":
+            continue
+        action = o.get("/A")
+        dest = action.get_object().get("/D") if action else o.get("/Dest")
+        first = dest.get_object()[0].get_object()
+        # pypdf-written links store the page as a plain number; hand-made
+        # ones (like the source example binder) use an indirect page reference
+        targets.append(int(first) if isinstance(first, (int, float))
+                       else reader.get_page_number(first))
+    return targets
+
+
+def test_toc_entries_page_math():
     counts = [("A", 3), ("B", 1)]
-    with_tabs = binder._index_entries(2, counts, tab_pages=True)
-    assert [e["start"] for e in with_tabs] == [4, 8]   # cover 1-2, tab 3, A 4-6, tab 7, B 8
-    without = binder._index_entries(2, counts, tab_pages=False)
-    assert [e["start"] for e in without] == [3, 6]
+    # cover + TOC = 2 lead pages; A = title 3 + doc 4-6, B = title 7 + doc 8
+    with_tabs = binder._toc_entries(2, counts, tab_pages=True)
+    assert [e["range_label"] for e in with_tabs] == ["3-6", "7-8"]
+    assert [e["target"] for e in with_tabs] == [2, 6]
+    # no title pages: A = 3-5, B = 6
+    without = binder._toc_entries(2, counts, tab_pages=False)
+    assert [e["range_label"] for e in without] == ["3-5", "6"]
+    assert [e["target"] for e in without] == [2, 5]
 
 
-def test_binder_with_tab_pages_orders_pages_and_bookmarks():
+def test_binder_with_title_pages_orders_pages_and_bookmarks():
     pdf = binder.build_binder(BinderInfo(borrower_name="Test Borrower"), _docs())
     r = PdfReader(io.BytesIO(pdf))
+    # cover + 1 TOC page + (title + 2) + (title + 3)
+    assert len(r.pages) == 2 + (1 + 2) + (1 + 3)
     marks = _outline_pages(r)
-    assert marks["Cover & Index"] == 0
-    cover_pages = marks["Tab 1 — Promissory Note"]  # first tab page follows the cover
-    assert cover_pages >= 1
-    # tab 2 sits after tab 1's page + the note's 2 pages
-    assert marks["Tab 2 — Loan and Security Agreement"] == cover_pages + 1 + 2
-    assert len(r.pages) == cover_pages + (1 + 2) + (1 + 3)
-    # the cover's index lists both titles (the blank one from its filename)
-    cover_text = r.pages[0].extract_text().lower()
-    assert "promissory note" in cover_text
-    assert "loan and security agreement" in cover_text
+    assert marks["Cover"] == 0
+    assert marks["Table of Contents"] == 1
+    assert marks["Promissory Note"] == 2                    # its title page
+    assert marks["Loan and Security Agreement"] == 2 + 1 + 2
+    # the TOC lists both titles (the blank one from its filename) with ranges
+    toc_text = r.pages[1].extract_text().lower()
+    assert "table of contents" in toc_text
+    assert "promissory note" in toc_text
+    assert "loan and security agreement" in toc_text
+    assert "3-5" in toc_text and "6-9" in toc_text
 
 
-def test_binder_without_tab_pages():
+def test_binder_toc_rows_are_clickable_links():
+    pdf = binder.build_binder(BinderInfo(borrower_name="Test Borrower"), _docs())
+    r = PdfReader(io.BytesIO(pdf))
+    # one link per document, jumping to that section's title page
+    assert _toc_links(r) == [2, 5]
+    # no links anywhere else in the front matter
+    assert _toc_links(r, page_index=0) == []
+
+
+def test_binder_without_title_pages():
     pdf = binder.build_binder(BinderInfo(), _docs(), tab_pages=False)
     r = PdfReader(io.BytesIO(pdf))
+    assert len(r.pages) == 2 + 2 + 3
     marks = _outline_pages(r)
-    cover_pages = marks["Tab 1 — Promissory Note"]
-    assert marks["Tab 2 — Loan and Security Agreement"] == cover_pages + 2
-    assert len(r.pages) == cover_pages + 2 + 3
+    assert marks["Promissory Note"] == 2
+    assert marks["Loan and Security Agreement"] == 4
+    assert _toc_links(r) == [2, 4]
 
 
 def test_binder_rejects_non_pdf_with_filename():
