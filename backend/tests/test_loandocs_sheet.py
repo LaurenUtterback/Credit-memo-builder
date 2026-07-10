@@ -32,6 +32,9 @@ def _balloon_workbook() -> bytes:
     ws["G7"], ws["H7"] = "Referral Fee", 56_000
     ws["G8"], ws["H8"] = "Prior Lender Payoff", 2_300_000
     ws["G9"], ws["H9"] = "To be disbursed to Borrower (Est)", 2_828_000
+    # a labeled number below the block with NO "Net to be disbursed" row —
+    # must not be mistaken for a post-disbursement settlement line
+    ws["G11"], ws["H11"] = "Some other model input", 123
     # full amortization grid — must not be picked up as the Exhibit A table
     ws["A18"], ws["B18"], ws["C18"] = "Payment Number", "Payment \nDate", "Beginning \nBalance"
     ws["G18"], ws["H18"] = "Principal", "Interest"
@@ -69,6 +72,27 @@ def _fully_amortized_workbook() -> bytes:
     return _bytes(wb)
 
 
+def _full_block_workbook() -> bytes:
+    """The layout with lines AFTER the to-Borrower subtotal, ending at a
+    'Net to be disbursed to Borrower (Est)' row (structure Lauren supplied
+    2026-07-10; amounts here are synthetic)."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Balloon"
+    ws["G4"], ws["H4"] = "Gross Loan Amount", 1_000_000
+    ws["G5"], ws["H5"] = "Lender Origination Fee (Est)", 40_000
+    ws["G6"], ws["H6"] = "SS Underwriting Fee (Est)", 39_000
+    ws["G7"], ws["H7"] = "Paydown Existing Note (Est)", 850_000
+    ws["G8"], ws["H8"] = "SRC Legal/Closing Costs (Est)", 8_000
+    ws["G9"], ws["H9"] = "SSL Legal/Closing Costs (Est)", 8_000
+    ws["G10"], ws["H10"] = "To be disbursed to Borrower (Est)", 55_000
+    ws["G11"], ws["H11"] = "DDD Insurance (Est)", 34_000
+    ws["G12"], ws["H12"] = "Net to be disbursed to Borrower (Est)", 21_000
+    # a labeled number below the finished block — must be ignored
+    ws["G14"], ws["H14"] = "Some other model input", 123
+    return _bytes(wb)
+
+
 def test_balloon_layout():
     r = parse_settlement_workbook(_balloon_workbook())
     assert r["settlement_sheet"] == "Balloon"
@@ -79,6 +103,9 @@ def test_balloon_layout():
         ("Prior Lender Payoff", 2_300_000),
     ]
     assert r["disbursed_check"] == 2_828_000
+    # without a "Net to be disbursed" terminator the tail is not trusted
+    assert r["post_lines"] == []
+    assert r["net_check"] is None
     assert r["schedule_sheet"] == "Sheet1"
     assert len(r["schedule"]) == 2  # totals row excluded
     assert r["schedule"][0] == {"date": "11/1/24", "interest": 0, "principal": 0, "total": 0}
@@ -94,6 +121,23 @@ def test_fully_amortized_layout_with_blank_row():
     assert r["schedule"][0]["date"] == "1/15/25"
     assert r["schedule"][0]["interest"] == 12916.67  # rounded to cents
     assert r["schedule"][0]["total"] == 40275.3
+
+
+def test_full_block_with_net_row():
+    r = parse_settlement_workbook(_full_block_workbook())
+    assert r["gross_loan_amount"] == 1_000_000
+    assert [(l["label"], l["amount"]) for l in r["lines"]] == [
+        ("Lender Origination Fee (Est)", 40_000),
+        ("SS Underwriting Fee (Est)", 39_000),
+        ("Paydown Existing Note (Est)", 850_000),
+        ("SRC Legal/Closing Costs (Est)", 8_000),
+        ("SSL Legal/Closing Costs (Est)", 8_000),
+    ]
+    assert r["disbursed_check"] == 55_000
+    assert [(l["label"], l["amount"]) for l in r["post_lines"]] == [
+        ("DDD Insurance (Est)", 34_000),
+    ]
+    assert r["net_check"] == 21_000
 
 
 def test_unrecognized_workbook_raises():

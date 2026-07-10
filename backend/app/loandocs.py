@@ -198,7 +198,9 @@ def _schedule(terms: LoanDocTerms) -> tuple[list[dict], dict]:
 
 def _settlement(terms: LoanDocTerms) -> list[dict]:
     """Memo of Settlement rows: Gross, each deduction in parens, computed
-    'To be disbursed to Borrower (Est)'. Always recomputed, never copied."""
+    'To be disbursed to Borrower (Est)'; when post-disbursement lines exist
+    (e.g. DDD Insurance) they follow in parens down to a computed 'Net to be
+    disbursed to Borrower (Est)'. Subtotals always recomputed, never copied."""
     gross = terms.loan_amount or 0
     rows = [{"label": "Gross Loan Amount",
              "amount": _money(gross, cents=True), "cls": "total"}]
@@ -210,8 +212,20 @@ def _settlement(terms: LoanDocTerms) -> list[dict]:
         deducted += amt
         rows.append({"label": line.label or "—",
                      "amount": f"({_money(amt, cents=True)})", "cls": ""})
+    disbursed = gross - deducted
+    post = [line for line in terms.settlement_post_lines if line.amount]
     rows.append({"label": "To be disbursed to Borrower (Est)",
-                 "amount": _money(gross - deducted, cents=True), "cls": "grand"})
+                 "amount": _money(disbursed, cents=True),
+                 "cls": "total" if post else "grand"})
+    if post:
+        net = disbursed
+        for line in post:
+            amt = abs(line.amount)
+            net -= amt
+            rows.append({"label": line.label or "—",
+                         "amount": f"({_money(amt, cents=True)})", "cls": ""})
+        rows.append({"label": "Net to be disbursed to Borrower (Est)",
+                     "amount": _money(net, cents=True), "cls": "grand"})
     return rows
 
 

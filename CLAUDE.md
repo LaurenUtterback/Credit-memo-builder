@@ -281,10 +281,16 @@ Amortization workbook upload (added 2026-07-08, second pass):
   (Step 2) and it fills the Memo of Settlement and the Note's Exhibit A.
 - The fee block is found by its LABELS, never coordinates (it moves between
   workbooks: G/H on Balloon, K/L on Fully Amortized): "Gross Loan Amount" ->
-  fee/payoff lines below it -> stops at "To be disbursed to Borrower (Est)".
-  Blank rows inside the block are skipped. The sheet's own disbursed figure is
-  returned ONLY as a cross-check (the UI compares and warns); the rendered
-  memo always recomputes disbursement from the lines.
+  fee/payoff lines below it -> "To be disbursed to Borrower (Est)". Some
+  workbooks continue with lines carved out of the to-Borrower figure (e.g.
+  DDD Insurance) down to "Net to be disbursed to Borrower (Est)" — those are
+  returned as `post_lines` / `LoanDocTerms.settlement_post_lines` and the
+  rendered Memo of Settlement then closes with a recomputed Net row (added
+  2026-07-10). The post section is kept ONLY when the Net terminator row is
+  found, so stray cells below a Net-less block are never swept in. Blank rows
+  inside the block are skipped. The sheet's own disbursed/net figures are
+  returned ONLY as cross-checks (the UI compares and warns); the rendered
+  memo always recomputes both subtotals from the lines.
 - The Exhibit A schedule comes from the "Sheet1" tab: header row of
   Payment Number | Payment Date | Principal | Interest | Total (Payment),
   rows until the first row without a payment number (the totals row). The

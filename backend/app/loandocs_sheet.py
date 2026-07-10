@@ -6,9 +6,14 @@ two things the closing package needs:
 1. The Memo of Settlement fee block — on the sheet named "Balloon" or
    "Fully Amortized" (found generically): a "Gross Loan Amount" label with the
    amount in a nearby column, the fee/payoff lines below it (SRC Origination
-   Fee, insurance, payoffs, ...), ending at "To be disbursed to Borrower (Est)".
-   The block's column position varies by workbook (G/H on Balloon, K/L on
-   Fully Amortized), so it is located by the label text, never by coordinates.
+   Fee, insurance, payoffs, ...), then "To be disbursed to Borrower (Est)".
+   Some workbooks continue past that subtotal with lines carved out of the
+   to-Borrower figure (e.g. DDD Insurance) down to a final "Net to be
+   disbursed to Borrower (Est)" — those come back as ``post_lines`` (kept only
+   when the Net row is actually there, so a missing terminator can't sweep up
+   unrelated cells below the block). The block's column position varies by
+   workbook (G/H on Balloon, K/L on Fully Amortized), so it is located by the
+   label text, never by coordinates.
 
 2. The Note's Exhibit A repayment schedule — on "Sheet1": a header row of
    Payment Number | Payment Date | Principal | Interest | Total, one row per
@@ -17,8 +22,8 @@ two things the closing package needs:
    similar header but also "Beginning Balance", which is how it is excluded.
 
 Everything is read from cached values (data_only=True) and reflected verbatim;
-"To be disbursed" is returned only as a cross-check — the rendered memo always
-recomputes it from the lines.
+the sheet's "To be disbursed" / "Net to be disbursed" figures are returned only
+as cross-checks — the rendered memo always recomputes both from the lines.
 """
 
 from __future__ import annotations
@@ -72,7 +77,8 @@ def _parse_fee_block(ws) -> dict | None:
             gross, amt_col = _amount_right_of(ws, cell.row, cell.column)
             if gross is None:
                 continue
-            lines, disbursed = [], None
+            lines, post_lines, disbursed, net = [], [], None, None
+            after_disbursed = False
             for r in range(cell.row + 1, cell.row + 1 + _MAX_BLOCK_ROWS):
                 label = ws.cell(row=r, column=cell.column).value
                 if _norm(label) == "":
@@ -80,17 +86,28 @@ def _parse_fee_block(ws) -> dict | None:
                 amount = _num(ws.cell(row=r, column=amt_col).value)
                 if amount is None:
                     amount, _ = _amount_right_of(ws, r, cell.column)
+                if "net to be disbursed" in _norm(label):
+                    net = amount
+                    break
                 if "to be disbursed" in _norm(label):
                     disbursed = amount
-                    break
+                    after_disbursed = True
+                    continue
                 if amount is None:
                     continue
-                lines.append({"label": str(label).strip(), "amount": round(amount, 2)})
+                (post_lines if after_disbursed else lines).append(
+                    {"label": str(label).strip(), "amount": round(amount, 2)})
+            if net is None:
+                # no "Net to be disbursed" terminator: anything gathered after
+                # the disbursed row is just cells below the block — drop it.
+                post_lines = []
             return {
                 "settlement_sheet": ws.title,
                 "gross_loan_amount": round(gross, 2),
                 "lines": lines,
                 "disbursed_check": round(disbursed, 2) if disbursed is not None else None,
+                "post_lines": post_lines,
+                "net_check": round(net, 2) if net is not None else None,
             }
     return None
 
@@ -176,7 +193,8 @@ def parse_settlement_workbook(data: bytes) -> dict:
             "in this workbook.")
 
     result = {"settlement_sheet": "", "gross_loan_amount": None, "lines": [],
-              "disbursed_check": None, "schedule_sheet": "", "schedule": []}
+              "disbursed_check": None, "post_lines": [], "net_check": None,
+              "schedule_sheet": "", "schedule": []}
     if fee:
         result.update(fee)
     if sched:

@@ -111,6 +111,11 @@ class LoanDocTerms(BaseModel):
     # Memo of Settlement deductions (rendered between the Gross Loan Amount
     # row and the computed "To be disbursed to Borrower (Est)" row)
     settlement_lines: list[SettlementLine] = []
+    # Lines carved out AFTER the to-Borrower subtotal (e.g. DDD Insurance).
+    # When present, the memo adds them below "To be disbursed to Borrower
+    # (Est)" and closes with a computed "Net to be disbursed to Borrower
+    # (Est)" row — mirroring the workbook / the credit memo's Section VI.
+    settlement_post_lines: list[SettlementLine] = []
 
     # Optional Exhibit A schedule override (else computed from the deal terms)
     repayment_schedule: Optional[list[ScheduleRow]] = None
@@ -128,5 +133,7 @@ class SettlementSheetResult(BaseModel):
     gross_loan_amount: Optional[float] = None
     lines: list[SettlementLine] = []
     disbursed_check: Optional[float] = None  # sheet's own figure, for comparison
+    post_lines: list[SettlementLine] = []   # after "To be disbursed" (e.g. DDD Insurance)
+    net_check: Optional[float] = None       # sheet's "Net to be disbursed" figure
     schedule_sheet: str = ""                # tab the Exhibit A rows came from
     schedule: list[ScheduleRow] = []

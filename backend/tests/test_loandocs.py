@@ -80,6 +80,30 @@ def test_render_contains_key_figures_and_no_source_deal():
         assert token not in html, f"source deal data in render: {token!r}"
 
 
+def test_settlement_post_lines_render_net_row():
+    """Post-disbursement lines (e.g. DDD Insurance) print after the computed
+    'To be disbursed to Borrower (Est)' subtotal, and the memo closes with a
+    recomputed 'Net to be disbursed to Borrower (Est)' — mirroring the deal
+    workbook's full fee block."""
+    terms = _terms()
+    terms.settlement_post_lines = [
+        SettlementLine(label="DDD Insurance (Est)", amount=27125),
+    ]
+    html = render_html(terms, LoanDocsInclude())
+    # 2,000,000 - 60,000 - 2,075 = 1,937,925 disbursed; - 27,125 = 1,910,800 net
+    assert "To be disbursed to Borrower (Est)" in html
+    assert "$1,937,925.00" in html
+    assert "DDD Insurance (Est)" in html and "($27,125.00)" in html
+    assert "Net to be disbursed to Borrower (Est)" in html
+    assert "$1,910,800.00" in html
+    # net is the grand (navy) row; the to-Borrower subtotal steps down a level
+    net_i = html.index("Net to be disbursed to Borrower (Est)")
+    assert 'class="grand"' in html[net_i - 200:net_i]
+    # without post lines the memo ends at the to-Borrower row, as before
+    plain = render_html(_terms(), LoanDocsInclude())
+    assert "Net to be disbursed to Borrower (Est)" not in plain
+
+
 def test_include_flags_drop_documents():
     include = LoanDocsInclude(guaranty=False, ucc=False)
     html = render_html(_terms(), include)

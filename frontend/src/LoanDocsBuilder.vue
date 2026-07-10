@@ -48,6 +48,11 @@ const settlementLines = ref([
   { label: 'SRC Legal/Closing Costs (Est)', amount: null },
 ])
 
+// Lines carved out AFTER "To be disbursed to Borrower (Est)" — e.g. DDD
+// Insurance. When any exist, the memo closes with a computed "Net to be
+// disbursed to Borrower (Est)" row, mirroring the workbook.
+const postLines = ref([])
+
 // Exhibit A repayment rows pulled from the workbook's Sheet1 or the memo
 // extraction (else the backend computes interest-monthly + balloon).
 const pulledSchedule = ref(null)
@@ -138,10 +143,15 @@ function pullFromMemo() {
     terms.borrower_street = addr
   }
 
-  // Settlement deductions from the memo's Uses of Funds (Section VI).
+  // Settlement deductions from the memo's Uses of Funds (Section VI) —
+  // including the lines after "To be disbursed" (additional_costs, e.g. DDD
+  // Insurance) so the Memo of Settlement shows the full waterfall.
   const uof = ed.uses_of_funds
   if (uof && Array.isArray(uof.deductions) && uof.deductions.length) {
     settlementLines.value = uof.deductions.map((d) => ({ label: d.label, amount: d.amount }))
+    if (Array.isArray(uof.additional_costs) && uof.additional_costs.length) {
+      postLines.value = uof.additional_costs.map((d) => ({ label: d.label, amount: d.amount }))
+    }
   } else if (t.loan && t.fee) {
     const fee = settlementLines.value.find((l) => /origination/i.test(l.label))
     if (fee && fee.amount == null) fee.amount = Math.round(t.loan * t.fee / 100)
@@ -295,6 +305,12 @@ async function onSheetFile(e) {
       settlementLines.value = r.lines.map((l) => ({ label: l.label, amount: l.amount }))
       bits.push(`${r.lines.length} settlement line(s) from "${r.settlement_sheet}"`)
     }
+    if (r.post_lines && r.post_lines.length) {
+      postLines.value = r.post_lines.map((l) => ({ label: l.label, amount: l.amount }))
+      bits.push(`${r.post_lines.length} line(s) after disbursement`)
+    } else if (r.lines && r.lines.length) {
+      postLines.value = []
+    }
     // the workbook's tab name says how the deal repays
     if (/amortiz/i.test(r.settlement_sheet || '')) {
       terms.amortization_type = 'fully_amortized'
@@ -319,6 +335,12 @@ async function onSheetFile(e) {
       bits.push(Math.abs(ours - r.disbursed_check) < 0.01
         ? `disbursement foots to the sheet (${fmtMoney(r.disbursed_check)})`
         : `⚠ sheet shows ${fmtMoney(r.disbursed_check)} to be disbursed but its lines foot to ${fmtMoney(ours)}`)
+      if (r.net_check != null) {
+        const ourNet = ours - (r.post_lines || []).reduce((s, l) => s + (l.amount || 0), 0)
+        bits.push(Math.abs(ourNet - r.net_check) < 0.01
+          ? `net disbursement foots to the sheet (${fmtMoney(r.net_check)})`
+          : `⚠ sheet shows ${fmtMoney(r.net_check)} net to be disbursed but its lines foot to ${fmtMoney(ourNet)}`)
+      }
     }
     sheetStatus.type = 'ok'
     sheetStatus.msg = '✓ ' + bits.join(' · ')
@@ -333,12 +355,17 @@ async function onSheetFile(e) {
 // --- settlement rows ---------------------------------------------------------
 function addLine() { settlementLines.value.push({ label: '', amount: null }) }
 function removeLine(i) { settlementLines.value.splice(i, 1) }
+function addPostLine() { postLines.value.push({ label: '', amount: null }) }
+function removePostLine(i) { postLines.value.splice(i, 1) }
 
 const disbursed = computed(() => {
   const gross = Number(terms.loan_amount) || 0
   const ded = settlementLines.value.reduce((s, l) => s + (Number(l.amount) || 0), 0)
   return gross - ded
 })
+
+const netDisbursed = computed(() =>
+  disbursed.value - postLines.value.reduce((s, l) => s + (Number(l.amount) || 0), 0))
 
 function fmtMoney(n) {
   if (n == null || isNaN(n)) return '—'
@@ -360,6 +387,9 @@ function buildPayload() {
       maturity_date: terms.maturity_date || null,
       contract_date: terms.contract_date || null,
       settlement_lines: settlementLines.value
+        .filter((l) => l.label || l.amount)
+        .map((l) => ({ label: l.label, amount: Number(l.amount) || 0 })),
+      settlement_post_lines: postLines.value
         .filter((l) => l.label || l.amount)
         .map((l) => ({ label: l.label, amount: Number(l.amount) || 0 })),
       repayment_schedule: pulledSchedule.value,
@@ -517,6 +547,18 @@ async function exportWord() {
       </table>
       <button type="button" class="ghost" @click="addLine">+ Add line</button>
       <p class="hint">To be disbursed to Borrower (Est): <strong>{{ fmtMoney(disbursed) }}</strong></p>
+
+      <h3 class="grp">After disbursement</h3>
+      <p class="hint">Amounts carved out of the disbursed figure (e.g. DDD Insurance). When any are listed, the Memo of Settlement adds them below "To be disbursed to Borrower (Est)" and closes with a computed "Net to be disbursed to Borrower (Est)" line.</p>
+      <table class="lines" v-if="postLines.length">
+        <tr v-for="(l, i) in postLines" :key="i">
+          <td><input v-model="l.label" placeholder="e.g. DDD Insurance (Est)" /></td>
+          <td style="width:160px"><input v-model.number="l.amount" type="number" placeholder="Amount" /></td>
+          <td style="width:30px"><button type="button" class="rm" @click="removePostLine(i)" title="Remove">✕</button></td>
+        </tr>
+      </table>
+      <button type="button" class="ghost" @click="addPostLine">+ Add line</button>
+      <p class="hint" v-if="postLines.length">Net to be disbursed to Borrower (Est): <strong>{{ fmtMoney(netDisbursed) }}</strong></p>
 
       <h3 class="grp">Documents to include</h3>
       <div class="checks">
