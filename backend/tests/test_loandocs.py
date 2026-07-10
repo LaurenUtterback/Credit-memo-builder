@@ -163,18 +163,28 @@ def test_no_team_contract_swaps_wording_and_blanks_cover():
 
 def test_each_document_gets_a_cover_page():
     """Every included document is preceded by its own cover page (masthead +
-    centered title + borrower), and excluding a document drops its cover too
+    centered title + borrower) — plus a "Repayment Schedule" cover before the
+    Note's Exhibit A — and excluding a document drops its cover(s) too
     (Lauren, 2026-07-10)."""
     html = render_html(_terms(), LoanDocsInclude())
-    assert html.count('class="page docpage doc-cover"') == 7
-    assert html.count('<p class="cover-borrower">Test Player</p>') == 7
+    assert html.count('class="page docpage doc-cover"') == 8
+    assert html.count('<p class="cover-borrower">Test Player</p>') == 8
     for title in ["Business Entity Affidavit", "Promissory Note",
+                  "Repayment Schedule",
                   "Loan and Security Agreement", "Guaranty",
                   "Memo of Settlement", "UCC Financing Statement",
                   "Payment Direction Letter"]:
         assert f"<h1>{title}</h1>" in html.split('class="cover-mid"', 1)[1]
+    # the Repayment Schedule cover sits between the Note's notary block and
+    # its Exhibit A table, which starts a fresh page without its own break
+    assert ("<h1>Repayment Schedule</h1>"
+            in html.split("NOTARY PUBLIC", 1)[1].split("Loan Repayments by Month")[0])
+    assert 'class="exhibit exhibit-page"' in html
     fewer = render_html(_terms(), LoanDocsInclude(guaranty=False, ucc=False))
-    assert fewer.count('class="page docpage doc-cover"') == 5
+    assert fewer.count('class="page docpage doc-cover"') == 6
+    # dropping the Note drops the Repayment Schedule cover with it
+    no_note = render_html(_terms(), LoanDocsInclude(note=False))
+    assert "<h1>Repayment Schedule</h1>" not in no_note
 
 
 def test_signature_and_notary_blocks_share_a_keep_wrapper():
