@@ -82,12 +82,15 @@ _CATEGORY_ORDER = [
     ("note", "Promissory Note"),
     ("repayment_schedule", "Repayment Schedule"),
     ("lsa", "Loan and Security Agreement"),
-    ("guaranty", "Guaranty"),
     ("settlement", "Memo of Settlement"),
     ("ucc", "UCC"),
     ("direction_letter", "Direction Letter"),
 ]
 _RANK = {cat: i for i, (cat, _) in enumerate(_CATEGORY_ORDER)}
+# The Guaranty is filed together with the LSA, directly under the
+# "Loan and Security Agreement" title page — one section, one TOC row
+# (Lauren, 2026-07-13; the executed example has no separate Guaranty tab).
+_MERGE_INTO = {"guaranty": "lsa"}
 # Unrecognized ("other") sections go after the closing documents, in page
 # order; insurance is always the last tab, all files merged into one section.
 
@@ -160,6 +163,7 @@ def _organize(entries: list[dict], page_counts: list[int]) -> tuple[list[SortSec
             notes.append(f"Skipped an unreadable range entry: {e!r}.")
             continue
         cat = str(e.get("category") or "other")
+        cat = _MERGE_INTO.get(cat, cat)
         if not 1 <= fi <= len(page_counts):
             notes.append(f"Skipped a range for a file that wasn't uploaded (file {fi}).")
             continue

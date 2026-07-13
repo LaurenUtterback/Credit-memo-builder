@@ -435,12 +435,17 @@ Backend pieces:
   SIGNED closing package (and separate insurance PDFs) and Claude returns
   every document's page range, which `_organize()` post-processes
   DETERMINISTICALLY into `BinderSortResult.sections`:
-  * canonical order (affidavit, note, repayment schedule, LSA, guaranty,
-    settlement, UCC, direction letter), "other" sections after those,
-    insurance ALWAYS last;
+  * canonical order (affidavit, note, repayment schedule, LSA, settlement,
+    UCC, direction letter), "other" sections after those, insurance ALWAYS
+    last;
   * all ranges of the SAME known category merge into ONE section (Claude
     tends to report the LSA body and its Exhibit A separately), and all
     insurance files/ranges merge into one "Insurance Documents" section;
+  * the GUARANTY is filed together with the LSA, directly under the
+    "Loan and Security Agreement" title page — one section, one TOC row
+    (`_MERGE_INTO`; the user's choice 2026-07-13, and the executed example
+    has no separate Guaranty tab). The prompt still has Claude label
+    "guaranty" ranges; the merge is a backend rule;
   * category "package_cover" (the package's own cover/index and per-document
     title sheets) is DROPPED — the binder adds its own cover and title
     pages; the prompt is emphatic that a title sheet is never part of the

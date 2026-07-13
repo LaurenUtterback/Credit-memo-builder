@@ -153,17 +153,19 @@ def test_organize_orders_sections_and_merges_categories():
         {"file_index": 1, "first_page": 4, "last_page": 7, "category": "lsa"},
         # the LSA's Exhibit A reported separately -> must merge into one section
         {"file_index": 1, "first_page": 8, "last_page": 9, "category": "lsa"},
+        # the Guaranty files together with the LSA, under its title page
+        {"file_index": 1, "first_page": 14, "last_page": 15, "category": "guaranty"},
         {"file_index": 3, "first_page": 1, "last_page": 2, "category": "insurance"},
         {"file_index": 1, "first_page": 13, "last_page": 13, "category": "other",
          "title": "Wire Confirmation"},
         {"file_index": 2, "first_page": 1, "last_page": 4, "category": "insurance"},
     ]
-    sections, notes = binder_extraction._organize(entries, [13, 4, 2])
+    sections, notes = binder_extraction._organize(entries, [15, 4, 2])
     assert [s.title for s in sections] == [
         "Promissory Note", "Loan and Security Agreement", "UCC",
         "Wire Confirmation", "Insurance Documents"]
     lsa = sections[1].parts
-    assert [(p.page_from, p.page_to) for p in lsa] == [(4, 7), (8, 9)]
+    assert [(p.page_from, p.page_to) for p in lsa] == [(4, 7), (8, 9), (14, 15)]
     ins = sections[-1].parts
     assert [(p.file_index, p.page_from, p.page_to) for p in ins] == [(2, 1, 4), (3, 1, 2)]
     assert notes == []  # every page accounted for (cover dropped but counted)
