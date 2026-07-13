@@ -16,6 +16,11 @@ const TAB_TAGS = {
   binder: 'Closing Binder Builder',
 }
 
+// The Loan Documents tab's deal terms live here (populated by the tab on
+// first mount) so they survive tab switches and the Closing Binder's
+// "Pull deal info from Loan Documents" can read them.
+const loanDocsTerms = reactive({})
+
 // --- state -----------------------------------------------------------------
 const files = ref([])
 const extracting = ref(false)
@@ -132,8 +137,8 @@ async function exportWord() {
     </header>
 
     <PaBuilder v-if="view === 'pa'" :memo-terms="terms" :memo-extraction="extraction" />
-    <LoanDocsBuilder v-else-if="view === 'loandocs'" :memo-terms="terms" :memo-extraction="extraction" />
-    <ClosingBinderBuilder v-else-if="view === 'binder'" :memo-terms="terms" :memo-extraction="extraction" />
+    <LoanDocsBuilder v-else-if="view === 'loandocs'" :memo-terms="terms" :memo-extraction="extraction" :terms-store="loanDocsTerms" />
+    <ClosingBinderBuilder v-else-if="view === 'binder'" :loandocs-terms="loanDocsTerms" />
 
     <template v-else>
     <!-- Step 1: upload + extract -->

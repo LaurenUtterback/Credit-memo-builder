@@ -438,10 +438,16 @@ Backend pieces:
   link targets, filename fallback titles, non-PDF rejection).
 
 Frontend: `frontend/src/ClosingBinderBuilder.vue`. Step 1 has BOTH the live
-"Pull deal info from Credit Memo" button (copies borrower/loan amount/funding
-date) and a document uploader ("Read deal documents") that fills ONLY empty
-fields — typed values are never overwritten (PA/loandocs precedent), with the
-extraction's notes shown in the status line. Step 2's PDF uploader
+"Pull deal info from Loan Documents" button and a document uploader ("Read
+deal documents") that fills ONLY empty fields — typed values are never
+overwritten (PA/loandocs precedent), with the extraction's notes shown in
+the status line. The pull reads the LOAN DOCUMENTS tab (not the memo — the
+closing documents carry the binder's exact fields: borrower, loan amount,
+loan number, closing date). To make that possible the Loan Documents tab's
+`terms` now live in an App.vue-owned store (`loanDocsTerms`, passed down as
+`terms-store`; the tab seeds missing keys from its `TERM_DEFAULTS` on first
+mount) — which also means that tab's typed values now SURVIVE tab switches,
+unlike the other tabs' local state. Step 2's PDF uploader
 accumulates files (non-PDFs are skipped with a notice), each row has an
 editable title (defaulting to the cleaned-up filename), ↑/↓ reordering and
 remove; generation previews the binder inline and the download button reuses

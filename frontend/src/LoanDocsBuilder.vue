@@ -2,14 +2,17 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { loanDocsDefaults, loanDocsHtml, loanDocsDownloadPdf, loanDocsDownloadWord, loanDocsSettlement, loanDocsExtract, loanDocsReadMemo } from './lib/api.js'
 
-// Deal terms/extraction the user already confirmed on the Credit Memo tab.
+// Deal terms/extraction the user already confirmed on the Credit Memo tab,
+// plus the App-owned store this tab keeps its own terms in (so they survive
+// tab switches and the Closing Binder tab can pull them).
 const props = defineProps({
   memoTerms: { type: Object, default: () => ({}) },
   memoExtraction: { type: Object, default: null },
+  termsStore: { type: Object, default: null },
 })
 
 // --- state -----------------------------------------------------------------
-const terms = reactive({
+const TERM_DEFAULTS = {
   borrower_name: '', borrower_street: '', borrower_city: '',
   borrower_state_abbr: '', borrower_zip: '', borrower_state: '',
   occupation: '', use_of_proceeds: 'Business related expenses',
@@ -25,7 +28,13 @@ const terms = reactive({
   lender_signatory_title: 'CEO',
   account_name: '', bank_name: '', bank_account_no: '', bank_aba: '',
   bank_address_1: '', bank_address_2: '', bank_contact: '', bank_phone: '',
-})
+}
+const terms = props.termsStore || reactive({ ...TERM_DEFAULTS })
+// seed keys the store doesn't have yet (first mount); values already typed
+// in a previous visit to this tab are kept
+for (const [k, v] of Object.entries(TERM_DEFAULTS)) {
+  if (!(k in terms)) terms[k] = v
+}
 
 const include = reactive({
   affidavit: true, note: true, lsa: true, guaranty: true,

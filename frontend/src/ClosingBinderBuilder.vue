@@ -1,9 +1,11 @@
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { binderPdf, binderExtract, triggerDownload } from './lib/api.js'
 
-// Deal terms from the Credit Memo tab, for "Pull deal info".
-const props = defineProps({ memoTerms: Object, memoExtraction: Object })
+// The Loan Documents tab's deal terms (App-owned store), for "Pull deal
+// info" — the closing documents carry exactly the binder's cover fields
+// (borrower, loan amount, loan number, closing date).
+const props = defineProps({ loandocsTerms: { type: Object, default: () => ({}) } })
 
 const info = reactive({
   borrower_name: '', loan_amount: null, loan_number: '', closing_date: '',
@@ -22,11 +24,19 @@ const notice = ref('')
 const previewUrl = ref('')
 let pdfBlob = null
 
-function pullFromMemo() {
-  const t = props.memoTerms || {}
-  if (t.name) info.borrower_name = t.name
-  if (t.loan) info.loan_amount = t.loan
-  if (t.fund) info.closing_date = t.fund
+const hasLoanDocs = computed(() => {
+  const t = props.loandocsTerms || {}
+  return !!(t.borrower_name || t.loan_amount)
+})
+const pullMsg = ref('')
+
+function pullFromLoanDocs() {
+  const t = props.loandocsTerms || {}
+  if (t.borrower_name) info.borrower_name = t.borrower_name
+  if (t.loan_amount) info.loan_amount = t.loan_amount
+  if (t.loan_number) info.loan_number = t.loan_number
+  if (t.closing_date) info.closing_date = t.closing_date
+  pullMsg.value = '✓ Pulled deal info from the Loan Documents tab — review the fields below'
 }
 
 // --- Read the binder info from uploaded deal documents ----------------------
@@ -121,9 +131,11 @@ function download() {
 <template>
   <section class="card">
     <h2><span class="step">1</span> Binder information</h2>
-    <button type="button" class="ghost" style="margin-top:0" @click="pullFromMemo">↩ Pull deal info from Credit Memo</button>
+    <button type="button" class="ghost" style="margin-top:0" :disabled="!hasLoanDocs" @click="pullFromLoanDocs">↩ Pull deal info from Loan Documents</button>
+    <p v-if="!hasLoanDocs" class="hint">Nothing to pull yet — fill in the Loan Documents tab (or type the fields below).</p>
+    <p v-if="pullMsg" class="status ok">{{ pullMsg }}</p>
 
-    <p class="hint" style="margin-top:10px">…or upload deal documents (the credit memo or loan documents work best) and read the binder info from them. Only empty fields are filled.</p>
+    <p class="hint" style="margin-top:10px">…or upload deal documents (the loan documents or credit memo work best) and read the binder info from them. Only empty fields are filled.</p>
     <input type="file" multiple @change="onInfoFiles" :disabled="infoReading" />
     <ul v-if="infoFiles.length" class="filelist">
       <li v-for="(f, i) in infoFiles" :key="f.name + f.size">
