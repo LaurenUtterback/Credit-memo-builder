@@ -8,15 +8,30 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
-class BinderDoc(BaseModel):
-    """One executed document going into the binder. PDF only — executed
-    closing documents come back from signing as PDFs (often scans)."""
+class BinderPart(BaseModel):
+    """A slice of an uploaded PDF: the whole file when no range is given,
+    else pages page_from..page_to (1-indexed, inclusive). The auto-sort flow
+    splits the signed closing package into sections this way."""
 
-    title: str = ""          # shown in the index and on the tab page;
-                             # blank falls back to a cleaned-up filename
     filename: str = ""
     mime: str = "application/pdf"
     b64: str
+    page_from: Optional[int] = None
+    page_to: Optional[int] = None
+
+
+class BinderDoc(BaseModel):
+    """One section of the binder. Either a single whole file (the manual
+    flow: filename/mime/b64) or a list of parts (the auto-sort flow —
+    e.g. several insurance PDFs merged into one "Insurance Documents"
+    section, or a page range of the signed closing package)."""
+
+    title: str = ""          # shown in the Table of Contents and title page;
+                             # blank falls back to a cleaned-up filename
+    filename: str = ""
+    mime: str = "application/pdf"
+    b64: str = ""
+    parts: list[BinderPart] = Field(default_factory=list)
 
 
 class BinderInfo(BaseModel):
@@ -31,5 +46,5 @@ class BinderInfo(BaseModel):
 class BinderRequest(BaseModel):
     info: BinderInfo = Field(default_factory=BinderInfo)
     documents: list[BinderDoc] = Field(default_factory=list)
-    # A numbered tab page before each document, like the tabs of a physical binder.
+    # A title page before each document, like the tabs of a physical binder.
     tab_pages: bool = True

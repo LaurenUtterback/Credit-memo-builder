@@ -431,6 +431,28 @@ Backend pieces:
   `_ask_claude` in loandocs_extraction.py. The prompt prefers an explicit
   Closing Date and says in `notes` which date it used; it never guesses a
   loan number.
+- `POST /api/binder/sort` (same module) — Step 2's auto-sort: upload the
+  SIGNED closing package (and separate insurance PDFs) and Claude returns
+  every document's page range, which `_organize()` post-processes
+  DETERMINISTICALLY into `BinderSortResult.sections`:
+  * canonical order (affidavit, note, repayment schedule, LSA, guaranty,
+    settlement, UCC, direction letter), "other" sections after those,
+    insurance ALWAYS last;
+  * all ranges of the SAME known category merge into ONE section (Claude
+    tends to report the LSA body and its Exhibit A separately), and all
+    insurance files/ranges merge into one "Insurance Documents" section;
+  * category "package_cover" (the package's own cover/index and per-document
+    title sheets) is DROPPED — the binder adds its own cover and title
+    pages; the prompt is emphatic that a title sheet is never part of the
+    following document's span (Claude initially lumped them in);
+  * pages Claude failed to assign are reported in `notes` (computed in
+    Python from the page counts, not trusted from the model) so nothing
+    disappears silently.
+  Sections can therefore be PAGE RANGES of one file and can span several
+  files — `BinderDoc.parts` (list of `BinderPart` with optional
+  page_from/page_to, 1-indexed inclusive) carries that to `build_binder`,
+  which validates ranges and parses each distinct upload only once. The
+  single-file b64 form still works (the manual flow).
 - Route: `POST /api/binder/pdf` (400 no docs, 422 unreadable/non-PDF upload
   naming the file, 501 renderer unavailable). PDF only — there is no Word
   export of a merged scan set.
@@ -447,7 +469,15 @@ loan number, closing date). To make that possible the Loan Documents tab's
 `terms` now live in an App.vue-owned store (`loanDocsTerms`, passed down as
 `terms-store`; the tab seeds missing keys from its `TERM_DEFAULTS` on first
 mount) — which also means that tab's typed values now SURVIVE tab switches,
-unlike the other tabs' local state. Step 2's PDF uploader
+unlike the other tabs' local state.
+
+Step 2's section rows are `{ uid, title, parts: [{file, from, to}] }` — a
+manual add creates one whole-file part; "✨ Sort & organize with Claude"
+sends every distinct file in the list to `/api/binder/sort` and REPLACES the
+rows with the organized sections (source shown as "file.pdf p.3–8", multiple
+parts joined with "+"; notes in the status line). Rows stay editable,
+reorderable and removable afterwards. `binderPdf` base64-encodes each
+distinct file only once however many sections it was split into. Step 2's PDF uploader
 accumulates files (non-PDFs are skipped with a notice), each row has an
 editable title (defaulting to the cleaned-up filename), ↑/↓ reordering and
 remove; generation previews the binder inline and the download button reuses

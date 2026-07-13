@@ -299,15 +299,49 @@ export async function binderExtract(files) {
   return res.json()
 }
 
-// Merge the executed PDFs into one indexed binder; returns the PDF blob so the
-// caller can both preview it and save it without generating twice.
+// Sort the signed closing package (+ insurance PDFs) into binder sections.
+export async function binderSort(files) {
+  const docs = await Promise.all(
+    Array.from(files).map(async (f) => ({
+      filename: f.name,
+      mime: f.type || 'application/pdf',
+      b64: await fileToBase64(f),
+    }))
+  )
+  const res = await fetch(`${BASE}/binder/sort`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(docs),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Sorting failed (${res.status})`)
+  }
+  return res.json()
+}
+
+// Merge the sections into one indexed binder; returns the PDF blob so the
+// caller can both preview it and save it without generating twice. Each
+// section is a list of parts {file, from, to} — a file is base64-encoded
+// only once however many sections it was split into.
 export async function binderPdf(info, docs, tabPages) {
+  const encoded = new Map()
+  const enc = (file) => {
+    if (!encoded.has(file)) encoded.set(file, fileToBase64(file))
+    return encoded.get(file)
+  }
   const documents = await Promise.all(
     docs.map(async (d) => ({
       title: d.title,
-      filename: d.file.name,
-      mime: d.file.type || 'application/pdf',
-      b64: await fileToBase64(d.file),
+      parts: await Promise.all(
+        d.parts.map(async (p) => ({
+          filename: p.file.name,
+          mime: p.file.type || 'application/pdf',
+          b64: await enc(p.file),
+          page_from: p.from || null,
+          page_to: p.to || null,
+        }))
+      ),
     }))
   )
   const res = await fetch(`${BASE}/binder/pdf`, {

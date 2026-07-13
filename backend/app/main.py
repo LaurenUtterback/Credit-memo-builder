@@ -38,7 +38,7 @@ from .loandocs_extraction import TeamContractExtraction, MemoDealExtraction
 from . import loandocs_extraction as loandocs_extraction_service
 from .binder_models import BinderRequest
 from . import binder as binder_service
-from .binder_extraction import BinderInfoExtraction
+from .binder_extraction import BinderInfoExtraction, BinderSortResult
 from . import binder_extraction as binder_extraction_service
 
 # Load the project-root .env so the Claude usage token (CLAUDE_CODE_OAUTH_TOKEN)
@@ -294,6 +294,20 @@ def binder_extract(docs: list[UploadedDoc]) -> BinderInfoExtraction:
         raise HTTPException(status_code=400, detail="No documents provided.")
     try:
         return binder_extraction_service.extract_binder_info(docs)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/binder/sort", response_model=BinderSortResult)
+def binder_sort(docs: list[UploadedDoc]) -> BinderSortResult:
+    """Read the uploaded signed closing package (and insurance PDFs) and
+    split it into the binder's standard sections with page ranges."""
+    if not docs:
+        raise HTTPException(status_code=400, detail="No documents provided.")
+    try:
+        return binder_extraction_service.sort_documents(docs)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

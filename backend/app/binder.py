@@ -35,7 +35,7 @@ from pypdf.annotations import Link
 from pypdf.generic import ArrayObject, NameObject
 
 from . import memo
-from .binder_models import BinderDoc, BinderInfo
+from .binder_models import BinderDoc, BinderInfo, BinderPart
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 _LOGO_PATH = Path(__file__).parent / "logo.txt"
@@ -75,25 +75,42 @@ def _title_from_filename(name: str) -> str:
     return re.sub(r"\s+", " ", stem.replace("_", " ")).strip()
 
 
-def _read_documents(docs: list[BinderDoc]) -> list[tuple[str, PdfReader, int]]:
-    """Decode and parse every upload, failing with the offending filename."""
-    items: list[tuple[str, PdfReader, int]] = []
+def _read_documents(docs: list[BinderDoc]) -> list[tuple[str, list]]:
+    """Decode and parse every upload into (title, pages) per section, failing
+    with the offending filename. A section is either a whole file or a list
+    of parts (page ranges, possibly spanning several files)."""
+    items: list[tuple[str, list]] = []
+    readers: dict[str, PdfReader] = {}  # b64 -> parsed reader; the auto-sort
+    # flow sends the same signed package once per section it was split into
     for i, d in enumerate(docs):
-        title = d.title.strip() or _title_from_filename(d.filename) or f"Document {i + 1}"
-        label = d.filename or title
-        try:
-            reader = PdfReader(io.BytesIO(base64.b64decode(d.b64)))
-            if reader.is_encrypted:
-                reader.decrypt("")
-            count = len(reader.pages)
-        except Exception as exc:  # noqa: BLE001 - surface parse failures cleanly
-            raise ValueError(
-                f"'{label}' could not be read as a PDF ({exc}). "
-                "The binder takes PDF files only — export or scan the document to PDF first."
-            ) from exc
-        if count == 0:
-            raise ValueError(f"'{label}' has no pages.")
-        items.append((title, reader, count))
+        parts = d.parts or [BinderPart(filename=d.filename, mime=d.mime, b64=d.b64)]
+        title = (d.title.strip() or _title_from_filename(parts[0].filename)
+                 or f"Document {i + 1}")
+        pages: list = []
+        for part in parts:
+            label = part.filename or title
+            try:
+                reader = readers.get(part.b64)
+                if reader is None:
+                    reader = PdfReader(io.BytesIO(base64.b64decode(part.b64)))
+                    if reader.is_encrypted:
+                        reader.decrypt("")
+                    readers[part.b64] = reader
+                count = len(reader.pages)
+            except Exception as exc:  # noqa: BLE001 - surface parse failures cleanly
+                raise ValueError(
+                    f"'{label}' could not be read as a PDF ({exc}). "
+                    "The binder takes PDF files only — export or scan the document to PDF first."
+                ) from exc
+            first = part.page_from or 1
+            last = part.page_to or count
+            if not (1 <= first <= last <= count):
+                raise ValueError(
+                    f"'{label}': page range {first}-{last} is outside the file's 1-{count}.")
+            pages.extend(reader.pages[first - 1:last])
+        if not pages:
+            raise ValueError(f"'{title}' has no pages.")
+        items.append((title, pages))
     return items
 
 
@@ -205,7 +222,7 @@ def build_binder(info: BinderInfo, docs: list[BinderDoc], tab_pages: bool = True
     if not docs:
         raise ValueError("No documents provided.")
     items = _read_documents(docs)
-    counts = [(title, count) for title, _, count in items]
+    counts = [(title, len(pages)) for title, pages in items]
 
     # Front matter is deterministic: 1 cover page + the TOC pages (fixed rows
     # per page) + one title page per document when enabled.
@@ -227,10 +244,10 @@ def build_binder(info: BinderInfo, docs: list[BinderDoc], tab_pages: bool = True
         writer.add_page(p)
     writer.add_outline_item("Cover", 0)
     writer.add_outline_item("Table of Contents", 1)
-    for i, ((title, reader, count), entry) in enumerate(zip(items, entries)):
+    for i, ((title, pages), entry) in enumerate(zip(items, entries)):
         if tab_pages:
             writer.add_page(front.pages[1 + toc_page_count + i])
-        for p in reader.pages:
+        for p in pages:
             writer.add_page(p)
         # after the pages exist in the writer — a bookmark added before its
         # target page resolves to a dead destination

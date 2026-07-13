@@ -17,13 +17,15 @@ import pytest
 from pypdf import PdfReader, PdfWriter
 
 from app import binder
-from app.binder_models import BinderDoc, BinderInfo
+from app import binder_extraction
+from app.binder_models import BinderDoc, BinderInfo, BinderPart
 
 
-def _pdf_b64(pages: int) -> str:
+def _pdf_b64(pages: int, width: float = 612) -> str:
+    """A blank PDF; a custom width marks its pages so slicing is checkable."""
     w = PdfWriter()
     for _ in range(pages):
-        w.add_blank_page(width=612, height=792)
+        w.add_blank_page(width=width, height=792)
     buf = io.BytesIO()
     w.write(buf)
     return base64.b64encode(buf.getvalue()).decode()
@@ -109,6 +111,73 @@ def test_binder_without_title_pages():
     assert marks["Promissory Note"] == 2
     assert marks["Loan and Security Agreement"] == 4
     assert _toc_links(r) == [2, 4]
+
+
+def test_binder_sections_from_page_ranges_and_merged_parts():
+    # one "signed package" split into two sections by page range, plus two
+    # insurance files merged into a single section — widths mark the sources
+    package = _pdf_b64(5, width=100)
+    ins1, ins2 = _pdf_b64(1, width=200), _pdf_b64(2, width=300)
+    docs = [
+        BinderDoc(title="Promissory Note",
+                  parts=[BinderPart(filename="pkg.pdf", b64=package, page_from=1, page_to=2)]),
+        BinderDoc(title="Loan and Security Agreement",
+                  parts=[BinderPart(filename="pkg.pdf", b64=package, page_from=3, page_to=5)]),
+        BinderDoc(title="Insurance Documents",
+                  parts=[BinderPart(filename="quote.pdf", b64=ins1),
+                         BinderPart(filename="policy.pdf", b64=ins2)]),
+    ]
+    pdf = binder.build_binder(BinderInfo(borrower_name="Test Borrower"), docs, tab_pages=False)
+    r = PdfReader(io.BytesIO(pdf))
+    assert len(r.pages) == 2 + 2 + 3 + 3
+    widths = [round(float(p.mediabox.width)) for p in r.pages[2:]]
+    assert widths == [100, 100, 100, 100, 100, 200, 300, 300]
+    marks = _outline_pages(r)
+    assert marks["Loan and Security Agreement"] == 4
+    assert marks["Insurance Documents"] == 7
+
+
+def test_binder_rejects_bad_page_range():
+    doc = BinderDoc(title="Note", parts=[
+        BinderPart(filename="pkg.pdf", b64=_pdf_b64(3), page_from=2, page_to=9)])
+    with pytest.raises(ValueError) as exc:
+        binder.build_binder(BinderInfo(), [doc])
+    assert "pkg.pdf" in str(exc.value) and "2-9" in str(exc.value)
+
+
+def test_organize_orders_sections_and_merges_categories():
+    entries = [
+        {"file_index": 1, "first_page": 1, "last_page": 1, "category": "package_cover"},
+        {"file_index": 1, "first_page": 10, "last_page": 12, "category": "ucc"},
+        {"file_index": 1, "first_page": 2, "last_page": 3, "category": "note"},
+        {"file_index": 1, "first_page": 4, "last_page": 7, "category": "lsa"},
+        # the LSA's Exhibit A reported separately -> must merge into one section
+        {"file_index": 1, "first_page": 8, "last_page": 9, "category": "lsa"},
+        {"file_index": 3, "first_page": 1, "last_page": 2, "category": "insurance"},
+        {"file_index": 1, "first_page": 13, "last_page": 13, "category": "other",
+         "title": "Wire Confirmation"},
+        {"file_index": 2, "first_page": 1, "last_page": 4, "category": "insurance"},
+    ]
+    sections, notes = binder_extraction._organize(entries, [13, 4, 2])
+    assert [s.title for s in sections] == [
+        "Promissory Note", "Loan and Security Agreement", "UCC",
+        "Wire Confirmation", "Insurance Documents"]
+    lsa = sections[1].parts
+    assert [(p.page_from, p.page_to) for p in lsa] == [(4, 7), (8, 9)]
+    ins = sections[-1].parts
+    assert [(p.file_index, p.page_from, p.page_to) for p in ins] == [(2, 1, 4), (3, 1, 2)]
+    assert notes == []  # every page accounted for (cover dropped but counted)
+
+
+def test_organize_reports_unassigned_pages_and_bad_entries():
+    entries = [
+        {"file_index": 1, "first_page": 1, "last_page": 2, "category": "note"},
+        {"file_index": 9, "first_page": 1, "last_page": 1, "category": "ucc"},
+    ]
+    sections, notes = binder_extraction._organize(entries, [5])
+    assert [s.title for s in sections] == ["Promissory Note"]
+    assert any("3-5" in n and "file 1" in n for n in notes)
+    assert any("file 9" in n for n in notes)
 
 
 def test_binder_rejects_non_pdf_with_filename():

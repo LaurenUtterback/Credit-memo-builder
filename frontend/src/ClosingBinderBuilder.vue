@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
-import { binderPdf, binderExtract, triggerDownload } from './lib/api.js'
+import { binderPdf, binderExtract, binderSort, triggerDownload } from './lib/api.js'
 
 // The Loan Documents tab's deal terms (App-owned store), for "Pull deal
 // info" — the closing documents carry exactly the binder's cover fields
@@ -16,13 +16,22 @@ const info = reactive({
 const infoFiles = ref([])
 const infoReading = ref(false)
 const infoStatus = reactive({ type: '', msg: '' })
-const docs = ref([]) // { file, title } — binder order, top to bottom
+// Binder sections, top to bottom. Each is { uid, title, parts } where parts
+// is [{ file, from, to }] — a whole file (from/to null) or a page range of
+// it. Auto-sort can split one signed package into several sections and can
+// merge several insurance PDFs into one.
+const docs = ref([])
+let nextUid = 1
 const tabPages = ref(true)
 const busy = ref(false)
 const error = ref('')
 const notice = ref('')
 const previewUrl = ref('')
 let pdfBlob = null
+
+// Auto-sort state
+const sorting = ref(false)
+const sortStatus = reactive({ type: '', msg: '' })
 
 const hasLoanDocs = computed(() => {
   const t = props.loandocsTerms || {}
@@ -81,17 +90,62 @@ function titleFrom(name) {
 function onFiles(e) {
   notice.value = ''
   const skipped = []
-  const seen = new Set(docs.value.map((d) => d.file.name + ':' + d.file.size))
+  const seen = new Set(docs.value.flatMap((d) => d.parts.map((p) => p.file.name + ':' + p.file.size)))
   for (const f of Array.from(e.target.files)) {
     const isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name)
     if (!isPdf) { skipped.push(f.name); continue }
     const key = f.name + ':' + f.size
-    if (!seen.has(key)) { docs.value.push({ file: f, title: titleFrom(f.name) }); seen.add(key) }
+    if (!seen.has(key)) {
+      docs.value.push({ uid: nextUid++, title: titleFrom(f.name), parts: [{ file: f, from: null, to: null }] })
+      seen.add(key)
+    }
   }
   if (skipped.length) {
     notice.value = `Skipped (not a PDF): ${skipped.join(', ')} — export or scan to PDF first.`
   }
   e.target.value = ''
+}
+
+// Label shown next to a section's title: which file(s)/pages it comes from.
+function sourceLabel(d) {
+  return d.parts
+    .map((p) => p.file.name + (p.from ? ` p.${p.from}–${p.to}` : ''))
+    .join(' + ')
+}
+
+// --- Sort & organize with Claude ---------------------------------------------
+async function sortDocs() {
+  // unique files across the current rows, in row order
+  const files = []
+  for (const d of docs.value) {
+    for (const p of d.parts) if (!files.includes(p.file)) files.push(p.file)
+  }
+  if (!files.length) return
+  sorting.value = true
+  sortStatus.type = 'info'
+  sortStatus.msg = `Reading ${files.length} file(s) with Claude and sorting the sections…`
+  try {
+    const r = await binderSort(files)
+    if (!r.sections || !r.sections.length) {
+      throw new Error('No sections were identified in the uploaded files.')
+    }
+    docs.value = r.sections.map((s) => ({
+      uid: nextUid++,
+      title: s.title,
+      parts: s.parts.map((p) => ({
+        file: files[p.file_index - 1],
+        from: p.page_from,
+        to: p.page_to,
+      })),
+    }))
+    sortStatus.type = 'ok'
+    sortStatus.msg = `✓ Organized into ${r.sections.length} sections — review the order and titles below`
+      + (r.notes ? ` (${r.notes})` : '')
+  } catch (err) {
+    sortStatus.type = 'err'
+    sortStatus.msg = 'Sorting failed: ' + err.message
+  }
+  sorting.value = false
 }
 
 function move(i, delta) {
@@ -159,13 +213,17 @@ function download() {
   <section class="card">
     <h2><span class="step">2</span> Add the executed documents (PDF)</h2>
     <input type="file" multiple accept="application/pdf,.pdf" @change="onFiles" />
-    <p class="hint">Add the signed PDFs in binder order — reorder below. Each becomes a section in the clickable Table of Contents; the titles are editable.</p>
+    <p class="hint">Drop the signed closing package and the insurance documents (PDFs), then let Claude split and order the sections like the standard binder — or add files one per section and arrange them yourself.</p>
     <p v-if="notice" class="status err">⚠ {{ notice }}</p>
+    <button type="button" :disabled="!docs.length || sorting" @click="sortDocs">
+      {{ sorting ? 'Sorting…' : '✨ Sort & organize with Claude' }}
+    </button>
+    <p v-if="sortStatus.msg" :class="['status', sortStatus.type]">{{ sortStatus.msg }}</p>
     <ul v-if="docs.length" class="filelist">
-      <li v-for="(d, i) in docs" :key="d.file.name + d.file.size">
+      <li v-for="(d, i) in docs" :key="d.uid">
         <span class="tabno">{{ i + 1 }}.</span>
         <input class="title-in" v-model="d.title" title="Shown in the Table of Contents and on the section title page" />
-        <span class="fname hint">{{ d.file.name }}</span>
+        <span class="fname hint">{{ sourceLabel(d) }}</span>
         <span class="ord">
           <button type="button" class="mini" :disabled="i === 0" @click="move(i, -1)" title="Move up">↑</button>
           <button type="button" class="mini" :disabled="i === docs.length - 1" @click="move(i, 1)" title="Move down">↓</button>
