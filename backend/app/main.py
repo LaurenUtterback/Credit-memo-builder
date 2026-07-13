@@ -38,6 +38,8 @@ from .loandocs_extraction import TeamContractExtraction, MemoDealExtraction
 from . import loandocs_extraction as loandocs_extraction_service
 from .binder_models import BinderRequest
 from . import binder as binder_service
+from .binder_extraction import BinderInfoExtraction
+from . import binder_extraction as binder_extraction_service
 
 # Load the project-root .env so the Claude usage token (CLAUDE_CODE_OAUTH_TOKEN)
 # is available however the server is launched. This does NOT rely on uvicorn's
@@ -283,6 +285,18 @@ def loandocs_word(req: LoanDocsRequest) -> Response:
 
 
 # --- Closing Binder -----------------------------------------------------------
+
+@app.post("/api/binder/extract", response_model=BinderInfoExtraction)
+def binder_extract(docs: list[UploadedDoc]) -> BinderInfoExtraction:
+    """Read uploaded deal documents (credit memo, loan documents, term sheet)
+    and return the binder's cover-page fields."""
+    if not docs:
+        raise HTTPException(status_code=400, detail="No documents provided.")
+    try:
+        return binder_extraction_service.extract_binder_info(docs)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
 
 @app.post("/api/binder/pdf")
 def binder_pdf(req: BinderRequest) -> Response:

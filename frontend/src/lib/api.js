@@ -278,6 +278,27 @@ export async function loanDocsDownloadWord(terms, include) {
 
 // --- Closing Binder -----------------------------------------------------------
 
+// Read deal documents (credit memo, loan docs, term sheet) -> binder cover fields.
+export async function binderExtract(files) {
+  const docs = await Promise.all(
+    Array.from(files).map(async (f) => ({
+      filename: f.name,
+      mime: f.type || 'application/octet-stream',
+      b64: await fileToBase64(f),
+    }))
+  )
+  const res = await fetch(`${BASE}/binder/extract`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(docs),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Extraction failed (${res.status})`)
+  }
+  return res.json()
+}
+
 // Merge the executed PDFs into one indexed binder; returns the PDF blob so the
 // caller can both preview it and save it without generating twice.
 export async function binderPdf(info, docs, tabPages) {

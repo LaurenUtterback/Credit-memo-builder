@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive } from 'vue'
-import { binderPdf, triggerDownload } from './lib/api.js'
+import { binderPdf, binderExtract, triggerDownload } from './lib/api.js'
 
 // Deal terms from the Credit Memo tab, for "Pull deal info".
 const props = defineProps({ memoTerms: Object, memoExtraction: Object })
@@ -8,6 +8,12 @@ const props = defineProps({ memoTerms: Object, memoExtraction: Object })
 const info = reactive({
   borrower_name: '', loan_amount: null, loan_number: '', closing_date: '',
 })
+
+// Deal-document upload state for reading the binder info with Claude
+// (credit memo, loan documents, term sheet — PDFs are best)
+const infoFiles = ref([])
+const infoReading = ref(false)
+const infoStatus = reactive({ type: '', msg: '' })
 const docs = ref([]) // { file, title } — binder order, top to bottom
 const tabPages = ref(true)
 const busy = ref(false)
@@ -21,6 +27,40 @@ function pullFromMemo() {
   if (t.name) info.borrower_name = t.name
   if (t.loan) info.loan_amount = t.loan
   if (t.fund) info.closing_date = t.fund
+}
+
+// --- Read the binder info from uploaded deal documents ----------------------
+function onInfoFiles(e) {
+  const seen = new Set(infoFiles.value.map((f) => f.name + ':' + f.size))
+  for (const f of Array.from(e.target.files)) {
+    const key = f.name + ':' + f.size
+    if (!seen.has(key)) { infoFiles.value.push(f); seen.add(key) }
+  }
+  e.target.value = ''
+}
+
+function removeInfoFile(i) { infoFiles.value.splice(i, 1) }
+
+async function readDealDocs() {
+  if (!infoFiles.value.length) return
+  infoReading.value = true
+  infoStatus.type = 'info'
+  infoStatus.msg = 'Reading the deal documents with Claude…'
+  try {
+    const r = await binderExtract(infoFiles.value)
+    // Same behavior as the other tabs' document readers: only fill fields
+    // that are still blank, never overwrite confirmed values.
+    if (r.borrower_name && !info.borrower_name) info.borrower_name = r.borrower_name
+    if (r.loan_amount && !info.loan_amount) info.loan_amount = r.loan_amount
+    if (r.loan_number && !info.loan_number) info.loan_number = r.loan_number
+    if (r.closing_date && !info.closing_date) info.closing_date = r.closing_date
+    infoStatus.type = 'ok'
+    infoStatus.msg = '✓ Read — review the fields below' + (r.notes ? ` (${r.notes})` : '')
+  } catch (err) {
+    infoStatus.type = 'err'
+    infoStatus.msg = 'Extraction failed: ' + err.message
+  }
+  infoReading.value = false
 }
 
 // "Loan_and_Security_Agreement (executed).pdf" -> an editable default title
@@ -82,6 +122,20 @@ function download() {
   <section class="card">
     <h2><span class="step">1</span> Binder information</h2>
     <button type="button" class="ghost" style="margin-top:0" @click="pullFromMemo">↩ Pull deal info from Credit Memo</button>
+
+    <p class="hint" style="margin-top:10px">…or upload deal documents (the credit memo or loan documents work best) and read the binder info from them. Only empty fields are filled.</p>
+    <input type="file" multiple @change="onInfoFiles" :disabled="infoReading" />
+    <ul v-if="infoFiles.length" class="filelist">
+      <li v-for="(f, i) in infoFiles" :key="f.name + f.size">
+        <span class="fname">{{ f.name }}</span>
+        <button type="button" class="rm" @click="removeInfoFile(i)" title="Remove">✕</button>
+      </li>
+    </ul>
+    <button type="button" :disabled="!infoFiles.length || infoReading" @click="readDealDocs">
+      {{ infoReading ? 'Reading…' : 'Read deal documents' }}
+    </button>
+    <p v-if="infoStatus.msg" :class="['status', infoStatus.type]">{{ infoStatus.msg }}</p>
+
     <div class="grid" style="margin-top:12px">
       <label>Borrower name <input v-model="info.borrower_name" /></label>
       <label>Loan amount <input v-model.number="info.loan_amount" type="number" /></label>

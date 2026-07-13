@@ -423,15 +423,26 @@ Backend pieces:
     `target_page_index`), not /A GoTo actions.
   * This template's Jinja env has autoescape ON (unlike loandocs) because
     document titles are free-text user input.
+- `app/binder_extraction.py` + `POST /api/binder/extract` — Step 1's
+  document reader: drop any deal documents (credit memo, loan documents,
+  term sheet; PDFs are best) and Claude returns the cover fields
+  (`BinderInfoExtraction`: borrower_name, loan_amount, loan_number,
+  closing_date ISO, notes). Same usage-token auth via the shared
+  `_ask_claude` in loandocs_extraction.py. The prompt prefers an explicit
+  Closing Date and says in `notes` which date it used; it never guesses a
+  loan number.
 - Route: `POST /api/binder/pdf` (400 no docs, 422 unreadable/non-PDF upload
   naming the file, 501 renderer unavailable). PDF only — there is no Word
   export of a merged scan set.
 - Tests: `tests/test_binder.py` (page math via the outline bookmarks, TOC
   link targets, filename fallback titles, non-PDF rejection).
 
-Frontend: `frontend/src/ClosingBinderBuilder.vue`. "Pull deal info from Credit
-Memo" copies borrower/loan amount/funding date. The PDF uploader accumulates
-files (non-PDFs are skipped with a notice), each row has an editable title
-(defaulting to the cleaned-up filename), ↑/↓ reordering and remove;
-generation previews the binder inline and the download button reuses the
-same blob.
+Frontend: `frontend/src/ClosingBinderBuilder.vue`. Step 1 has BOTH the live
+"Pull deal info from Credit Memo" button (copies borrower/loan amount/funding
+date) and a document uploader ("Read deal documents") that fills ONLY empty
+fields — typed values are never overwritten (PA/loandocs precedent), with the
+extraction's notes shown in the status line. Step 2's PDF uploader
+accumulates files (non-PDFs are skipped with a notice), each row has an
+editable title (defaulting to the cleaned-up filename), ↑/↓ reordering and
+remove; generation previews the binder inline and the download button reuses
+the same blob.
