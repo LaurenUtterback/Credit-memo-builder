@@ -175,6 +175,12 @@ def pa_breakdown(docs: list[UploadedDoc]) -> BreakdownResult:
         raise HTTPException(status_code=422, detail=f"Could not read the breakdown: {exc}") from exc
 
 
+@app.get("/api/pa/defaults")
+def pa_defaults() -> dict:
+    """SRC signer + e-signature site defaults for the send-for-signature step (from .env)."""
+    return pa_agreement_service.esign_defaults()
+
+
 def _pa_filename(terms: PATerms, ext: str) -> str:
     base = _safe_name(terms.borrower_name or "Participation")
     return f"Participation_Agreement_{base}.{ext}"

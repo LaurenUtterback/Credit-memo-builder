@@ -164,6 +164,13 @@ export async function paPreviewPdf(terms, agreementType) {
   return URL.createObjectURL(blob)
 }
 
+// SRC signer + e-signature site defaults for the send-for-signature step (.env).
+export async function paDefaults() {
+  const res = await fetch(`${BASE}/pa/defaults`)
+  if (!res.ok) return {}
+  return res.json()
+}
+
 // --- Loan Documents Builder --------------------------------------------------
 
 export async function loanDocsDefaults() {

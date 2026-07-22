@@ -184,7 +184,8 @@ Backend pieces:
   even without Excel's cached values. Emails come from the lookup sheet.
 - `app/pa_agreement.py` — fills the template with **docxtpl** (pure Python) and
   converts the .docx to PDF with **LibreOffice headless** (`find_soffice()`).
-- Routes: `POST /api/pa/extract`, `/api/pa/breakdown`, `/api/pa/docx`, `/api/pa/pdf`.
+- Routes: `POST /api/pa/extract`, `/api/pa/breakdown`, `/api/pa/docx`, `/api/pa/pdf`,
+  `GET /api/pa/defaults`.
 - Frontend: `frontend/src/PaBuilder.vue` (uses the app's existing global CSS).
   Drop the breakdown .xlsx → pick a participant → the Key Terms (participation %,
   points %/$, interest, late-fee share, amount, email) auto-fill (mapped per
@@ -194,6 +195,19 @@ Backend pieces:
   **"Pull deal info from Credit Memo"** button copies borrower, loan amount,
   interest rate, origination fee, and the funding date (→ agreement_date) over —
   so a typical flow is: build the memo → pull → drop the breakdown → generate.
+- Step 4 "Send out for signature" (bottom of the PA tab): the signer rows
+  prefill — the SRC signer from `GET /api/pa/defaults`, the participant
+  signatory/email from the same `terms` fields the breakdown already fills —
+  with a final-PDF download, a copy-signer-list button (synchronous
+  execCommand first; the async clipboard API only as a timeout-guarded
+  backup, because a hung permission prompt would otherwise leave the button
+  dead), and a button that opens the e-signature site where SRC sends
+  documents out for signing. The SRC signer identity and the signing site's
+  name/URL are deployment details read from `.env` by
+  `pa_agreement.esign_defaults()` (`SRC_SIGNER_NAME`, `SRC_SIGNER_EMAIL`,
+  `ESIGN_NAME`, `ESIGN_URL`) — NEVER hard-code them (public repo). The
+  signing platform SRC uses has no public API, so this step prepares
+  everything for a manual upload rather than sending envelopes itself.
 
 Templates — `app/templates/participation_agreement_{brookridge,standard}.docx`:
 - Carry the SRC logo (blue compass — decoded from `app/logo.txt`) centered in a

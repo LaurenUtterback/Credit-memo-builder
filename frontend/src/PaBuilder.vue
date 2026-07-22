@@ -1,6 +1,6 @@
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
-import { paExtract, paBreakdown, paDownloadDocx, paDownloadPdf, paPreviewPdf } from './lib/api.js'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { paExtract, paBreakdown, paDownloadDocx, paDownloadPdf, paPreviewPdf, paDefaults } from './lib/api.js'
 
 // Deal terms the user already confirmed on the Credit Memo tab (shared parent state).
 const props = defineProps({
@@ -279,6 +279,64 @@ async function downloadPdf() {
   try { await paDownloadPdf(syncBeforeSend(), agreementType.value) }
   catch (err) { genError.value = err.message }
 }
+
+// --- Step 4: send out for signature -----------------------------------------
+// The SRC signer identity and the e-signature site's name/URL come from .env
+// via /api/pa/defaults — deployment details, never hard-coded (public repo).
+const esign = reactive({ signer_name: 'James Plack', signer_email: '', esign_name: '', esign_url: '' })
+const copyStatus = ref('')
+
+onMounted(async () => {
+  const d = await paDefaults()
+  if (d.signer_name) esign.signer_name = d.signer_name
+  if (d.signer_email) esign.signer_email = d.signer_email
+  esign.esign_name = d.esign_name || ''
+  esign.esign_url = d.esign_url || ''
+})
+
+const esignSiteLabel = computed(() => esign.esign_name || 'your e-signature site')
+
+function signerLines() {
+  return [
+    `${esign.signer_name || 'South River Capital signer'} <${esign.signer_email || 'no email set'}>`,
+    `${terms.participant_signatory_name || 'Participant signer'} <${terms.participant_email || 'no email set'}>`,
+  ].join('\n')
+}
+
+// Synchronous copy inside the click gesture — never hangs, works everywhere.
+function legacyCopy(text) {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { ok = false }
+  ta.remove()
+  return ok
+}
+
+async function copySigners() {
+  const text = signerLines()
+  let ok = legacyCopy(text)
+  if (!ok && navigator.clipboard) {
+    // Async clipboard API as backup — with a timeout so a permission prompt
+    // that never resolves can't leave the button looking dead.
+    ok = await Promise.race([
+      navigator.clipboard.writeText(text).then(() => true, () => false),
+      new Promise((resolve) => setTimeout(() => resolve(false), 1500)),
+    ])
+  }
+  copyStatus.value = ok
+    ? '✓ Signer list copied — paste it into the recipients screen.'
+    : text  // last resort: show the list so it can be copied by hand
+  setTimeout(() => { copyStatus.value = '' }, 8000)
+}
+
+function openEsignSite() {
+  if (esign.esign_url) window.open(esign.esign_url, '_blank', 'noopener')
+}
 </script>
 
 <template>
@@ -393,6 +451,27 @@ async function downloadPdf() {
   <section v-if="previewUrl" class="card">
     <h2>Preview</h2>
     <iframe :src="previewUrl" class="preview" title="Participation agreement preview"></iframe>
+  </section>
+
+  <!-- Step 4: send out for signature -->
+  <section class="card">
+    <h2><span class="step">4</span> Send out for signature</h2>
+    <p class="hint">
+      Download the finished PDF, then open {{ esignSiteLabel }} and upload it there.
+      The signers below fill in automatically — the participant's email comes from
+      the breakdown's email sheet (or type it in Step 2; the two stay in sync).
+    </p>
+    <h3 class="grp">Signers</h3>
+    <div class="grid">
+      <label>South River signer <input v-model="esign.signer_name" /></label>
+      <label>South River signer email <input v-model="esign.signer_email" placeholder="set SRC_SIGNER_EMAIL in .env" /></label>
+      <label>Participant signer <input v-model="terms.participant_signatory_name" placeholder="e.g. Jane Smith" /></label>
+      <label>Participant email <input v-model="terms.participant_email" placeholder="from the breakdown, or type it" /></label>
+    </div>
+    <button class="ghost" :disabled="!canGenerate" @click="downloadPdf">📕 Download the final PDF</button>
+    <button class="ghost" @click="copySigners">📋 Copy signer list</button>
+    <button v-if="esign.esign_url" class="ghost" @click="openEsignSite">✒️ Open {{ esignSiteLabel }} ↗</button>
+    <p v-if="copyStatus" class="status ok">{{ copyStatus }}</p>
   </section>
 </template>
 
