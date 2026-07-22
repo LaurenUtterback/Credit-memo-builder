@@ -2,6 +2,9 @@
 .env
 *.env
 !.env.example
+# DocuSign RSA private key (JWT grant) — kept at the project root, never in git
+docusign_private_key*.txt
+*.pem
 
 # Python
 __pycache__/

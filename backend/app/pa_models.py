@@ -94,6 +94,14 @@ class PARequest(BaseModel):
     agreement_type: str = "brookridge"            # "brookridge" or "standard"
 
 
+class PASendRequest(PARequest):
+    """Step 4: send the generated agreement out for signature (DocuSign)."""
+
+    lender_signer_name: str = "James Plack"
+    lender_signer_email: str = ""
+    draft: bool = False           # create the envelope without emailing anyone (testing)
+
+
 # --- Participant Breakdown (.xlsx) -----------------------------------------
 
 class BreakdownParticipant(BaseModel):

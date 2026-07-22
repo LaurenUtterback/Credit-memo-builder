@@ -27,10 +27,11 @@ from dotenv import load_dotenv
 from .models import Extraction, MemoRequest, UploadedDoc
 from . import extraction as extraction_service
 from . import memo as memo_service
-from .pa_models import PAExtraction, PARequest, PATerms, BreakdownResult
+from .pa_models import PAExtraction, PARequest, PASendRequest, PATerms, BreakdownResult
 from . import pa_extraction as pa_extraction_service
 from . import pa_agreement as pa_agreement_service
 from . import pa_breakdown as pa_breakdown_service
+from . import esign_docusign as esign_service
 from .loandocs_models import LoanDocsRequest, SettlementSheetResult
 from . import loandocs as loandocs_service
 from . import loandocs_sheet as loandocs_sheet_service
@@ -177,8 +178,46 @@ def pa_breakdown(docs: list[UploadedDoc]) -> BreakdownResult:
 
 @app.get("/api/pa/defaults")
 def pa_defaults() -> dict:
-    """SRC signer + e-signature site defaults for the send-for-signature step (from .env)."""
-    return pa_agreement_service.esign_defaults()
+    """SRC signer + e-signature defaults for the send-for-signature step (from .env)."""
+    out = pa_agreement_service.esign_defaults()
+    esign = esign_service.status()
+    out["esign_provider"] = esign["provider"]
+    out["esign_ready"] = esign["ready"]
+    out["esign_mode"] = esign["mode"]
+    return out
+
+
+@app.post("/api/pa/send")
+def pa_send(req: PASendRequest) -> dict:
+    """Render the agreement and send it out for signature via DocuSign."""
+    lender_email = req.lender_signer_email.strip()
+    participant_email = (req.terms.participant_email or "").strip()
+    participant_name = (
+        (req.terms.participant_signatory_name or "").strip()
+        or (req.terms.participant_name or "").strip()
+    )
+    if "@" not in lender_email or "@" not in participant_email:
+        raise HTTPException(status_code=400, detail="Both signer emails are needed before sending.")
+    if not participant_name:
+        raise HTTPException(status_code=400, detail="The participant signer needs a name.")
+    try:
+        pdf = pa_agreement_service.render_pdf(req.terms, req.agreement_type)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    subject = f"Please sign: Participation Agreement — {req.terms.borrower_name or 'South River Capital'}"
+    try:
+        return esign_service.send_for_signature(
+            pdf,
+            _pa_filename(req.terms, "pdf"),
+            {"name": req.lender_signer_name.strip() or "James Plack", "email": lender_email},
+            {"name": participant_name, "email": participant_email},
+            subject,
+            draft=req.draft,
+        )
+    except esign_service.EsignNotConfigured as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except esign_service.EsignError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 def _pa_filename(terms: PATerms, ext: str) -> str:

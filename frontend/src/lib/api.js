@@ -171,6 +171,25 @@ export async function paDefaults() {
   return res.json()
 }
 
+// Send the agreement out for signature via DocuSign (backend renders the PDF).
+export async function paSend(terms, agreementType, lenderSigner) {
+  const res = await fetch(`${BASE}/pa/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      terms,
+      agreement_type: agreementType,
+      lender_signer_name: lenderSigner.name,
+      lender_signer_email: lenderSigner.email,
+    }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Send failed (${res.status})`)
+  }
+  return res.json()
+}
+
 // --- Loan Documents Builder --------------------------------------------------
 
 export async function loanDocsDefaults() {

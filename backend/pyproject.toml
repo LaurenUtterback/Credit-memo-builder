@@ -26,6 +26,7 @@ dependencies = [
     # Closing Binder: merges the executed PDFs behind the rendered cover/index
     # and writes the outline bookmarks.
     "pypdf>=4.0",
+"cryptography>=42.0",   # RS256 signing for the DocuSign JWT grant
 ]
 
 [project.optional-dependencies]

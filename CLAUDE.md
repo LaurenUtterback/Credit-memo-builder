@@ -185,7 +185,7 @@ Backend pieces:
 - `app/pa_agreement.py` — fills the template with **docxtpl** (pure Python) and
   converts the .docx to PDF with **LibreOffice headless** (`find_soffice()`).
 - Routes: `POST /api/pa/extract`, `/api/pa/breakdown`, `/api/pa/docx`, `/api/pa/pdf`,
-  `GET /api/pa/defaults`.
+  `/api/pa/send`, `GET /api/pa/defaults`.
 - Frontend: `frontend/src/PaBuilder.vue` (uses the app's existing global CSS).
   Drop the breakdown .xlsx → pick a participant → the Key Terms (participation %,
   points %/$, interest, late-fee share, amount, email) auto-fill (mapped per
@@ -197,17 +197,34 @@ Backend pieces:
   so a typical flow is: build the memo → pull → drop the breakdown → generate.
 - Step 4 "Send out for signature" (bottom of the PA tab): the signer rows
   prefill — the SRC signer from `GET /api/pa/defaults`, the participant
-  signatory/email from the same `terms` fields the breakdown already fills —
-  with a final-PDF download, a copy-signer-list button (synchronous
-  execCommand first; the async clipboard API only as a timeout-guarded
-  backup, because a hung permission prompt would otherwise leave the button
-  dead), and a button that opens the e-signature site where SRC sends
-  documents out for signing. The SRC signer identity and the signing site's
-  name/URL are deployment details read from `.env` by
-  `pa_agreement.esign_defaults()` (`SRC_SIGNER_NAME`, `SRC_SIGNER_EMAIL`,
-  `ESIGN_NAME`, `ESIGN_URL`) — NEVER hard-code them (public repo). The
-  signing platform SRC uses has no public API, so this step prepares
-  everything for a manual upload rather than sending envelopes itself.
+  signatory/email from the same `terms` fields the breakdown already fills.
+  With DocuSign configured (`esign_ready` from the defaults endpoint) the
+  primary button is a real one-click send: `POST /api/pa/send` renders the
+  PDF server-side and `app/esign_docusign.py` creates the envelope. Without
+  it, the step falls back to the manual flow: final-PDF download, a
+  copy-signer-list button (synchronous execCommand first; the async
+  clipboard API only as a timeout-guarded backup, because a hung permission
+  prompt would otherwise leave the button dead), and a button opening the
+  e-signature site where SRC sends documents manually.
+- `app/esign_docusign.py`: JWT grant (RS256 via `cryptography` — no DocuSign
+  SDK), token/account cached ~1h; `find_sign_tabs()` locates every
+  "By: ______" line in the rendered PDF with pypdf and assigns them
+  alternately lender/participant (the templates always print the Lender
+  block above the Participant block — signature page AND Exhibit B
+  certificate, 4 lines total, locked by `tests/test_esign_docusign.py`);
+  both recipients get routingOrder 1 (emailed at once, matching SRC's
+  executed PAs). DocuSign tab positions are top-left-origin points
+  (xPosition = x+30 past "By:", yPosition = page_height − y − 24).
+  `PASendRequest.draft=True` creates the envelope without emailing anyone
+  (safe testing). Config is env-only (public repo — never hard-code):
+  `DOCUSIGN_INTEGRATION_KEY`, `DOCUSIGN_USER_ID`, `DOCUSIGN_ACCOUNT_ID`
+  (optional), `DOCUSIGN_ENV` (demo | production, default demo), private key
+  in git-ignored `docusign_private_key.txt` at the project root (or
+  `DOCUSIGN_PRIVATE_KEY_FILE` / inline `DOCUSIGN_PRIVATE_KEY`). A
+  consent_required error from DocuSign surfaces the one-time consent URL in
+  the API error detail. The SRC signer identity and the manual signing
+  site's name/URL stay in `.env` too (`SRC_SIGNER_NAME`, `SRC_SIGNER_EMAIL`,
+  `ESIGN_NAME`, `ESIGN_URL`, read by `pa_agreement.esign_defaults()`).
 
 Templates — `app/templates/participation_agreement_{brookridge,standard}.docx`:
 - Carry the SRC logo (blue compass — decoded from `app/logo.txt`) centered in a

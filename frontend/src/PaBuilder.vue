@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
-import { paExtract, paBreakdown, paDownloadDocx, paDownloadPdf, paPreviewPdf, paDefaults } from './lib/api.js'
+import { paExtract, paBreakdown, paDownloadDocx, paDownloadPdf, paPreviewPdf, paDefaults, paSend } from './lib/api.js'
 
 // Deal terms the user already confirmed on the Credit Memo tab (shared parent state).
 const props = defineProps({
@@ -283,8 +283,13 @@ async function downloadPdf() {
 // --- Step 4: send out for signature -----------------------------------------
 // The SRC signer identity and the e-signature site's name/URL come from .env
 // via /api/pa/defaults — deployment details, never hard-coded (public repo).
-const esign = reactive({ signer_name: 'James Plack', signer_email: '', esign_name: '', esign_url: '' })
+const esign = reactive({
+  signer_name: 'James Plack', signer_email: '', esign_name: '', esign_url: '',
+  ready: false, mode: '',      // one-click DocuSign sending configured? demo or production?
+})
 const copyStatus = ref('')
+const sending = ref(false)
+const sendStatus = reactive({ type: '', msg: '' })
 
 onMounted(async () => {
   const d = await paDefaults()
@@ -292,7 +297,32 @@ onMounted(async () => {
   if (d.signer_email) esign.signer_email = d.signer_email
   esign.esign_name = d.esign_name || ''
   esign.esign_url = d.esign_url || ''
+  esign.ready = !!d.esign_ready
+  esign.mode = d.esign_mode || ''
 })
+
+const canSend = computed(() =>
+  canGenerate.value
+  && String(esign.signer_email).includes('@')
+  && String(terms.participant_email).includes('@'))
+
+async function sendForSignature() {
+  sendStatus.type = 'info'
+  sendStatus.msg = 'Generating the PDF and sending it out for signature…'
+  sending.value = true
+  try {
+    const r = await paSend(syncBeforeSend(), agreementType.value,
+      { name: esign.signer_name, email: esign.signer_email })
+    sendStatus.type = 'ok'
+    sendStatus.msg = `✓ Sent — ${esign.signer_name} and ${terms.participant_signatory_name || terms.participant_name} `
+      + `will each get a DocuSign email with the signature fields already placed.`
+      + (r.mode === 'demo' ? ' (Demo mode: the documents carry a DEMONSTRATION watermark.)' : '')
+  } catch (err) {
+    sendStatus.type = 'err'
+    sendStatus.msg = 'Could not send: ' + err.message
+  }
+  sending.value = false
+}
 
 const esignSiteLabel = computed(() => esign.esign_name || 'your e-signature site')
 
@@ -456,7 +486,12 @@ function openEsignSite() {
   <!-- Step 4: send out for signature -->
   <section class="card">
     <h2><span class="step">4</span> Send out for signature</h2>
-    <p class="hint">
+    <p v-if="esign.ready" class="hint">
+      One click sends the finished agreement to both signers through DocuSign, with the
+      signature fields already placed on the signature page and the Exhibit&nbsp;B certificate.
+      The participant's email comes from the breakdown (or type it in Step 2 — the two stay in sync).
+    </p>
+    <p v-else class="hint">
       Download the finished PDF, then open {{ esignSiteLabel }} and upload it there.
       The signers below fill in automatically — the participant's email comes from
       the breakdown's email sheet (or type it in Step 2; the two stay in sync).
@@ -468,9 +503,20 @@ function openEsignSite() {
       <label>Participant signer <input v-model="terms.participant_signatory_name" placeholder="e.g. Jane Smith" /></label>
       <label>Participant email <input v-model="terms.participant_email" placeholder="from the breakdown, or type it" /></label>
     </div>
-    <button class="ghost" :disabled="!canGenerate" @click="downloadPdf">📕 Download the final PDF</button>
-    <button class="ghost" @click="copySigners">📋 Copy signer list</button>
-    <button v-if="esign.esign_url" class="ghost" @click="openEsignSite">✒️ Open {{ esignSiteLabel }} ↗</button>
+    <template v-if="esign.ready">
+      <button :disabled="!canSend || sending" @click="sendForSignature">
+        {{ sending ? 'Sending…' : '✒️ Send for signature' }}
+      </button>
+      <button class="ghost" :disabled="!canGenerate" @click="downloadPdf">📕 PDF copy</button>
+      <button class="ghost" @click="copySigners">📋 Copy signer list</button>
+      <p v-if="!canSend && canGenerate" class="hint">Both signers need an email address before sending.</p>
+      <p v-if="sendStatus.msg" :class="['status', sendStatus.type]">{{ sendStatus.msg }}</p>
+    </template>
+    <template v-else>
+      <button class="ghost" :disabled="!canGenerate" @click="downloadPdf">📕 Download the final PDF</button>
+      <button class="ghost" @click="copySigners">📋 Copy signer list</button>
+      <button v-if="esign.esign_url" class="ghost" @click="openEsignSite">✒️ Open {{ esignSiteLabel }} ↗</button>
+    </template>
     <p v-if="copyStatus" class="status ok">{{ copyStatus }}</p>
   </section>
 </template>
