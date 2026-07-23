@@ -227,9 +227,9 @@ Backend pieces:
   `ESIGN_NAME`, `ESIGN_URL`, read by `pa_agreement.esign_defaults()`).
 
 Templates — `app/templates/participation_agreement_{brookridge,standard}.docx`:
-- Carry the SRC logo (blue compass — decoded from `app/logo.txt`) centered in a
-  FIRST-page-only Word header, added by the build script; body layout and
-  pages 2+ are untouched.
+- Carry the SRC logo (blue compass — decoded from `app/logo.txt`) left-aligned
+  in a FIRST-page-only Word header (matching the credit memo's masthead), added
+  by the build script; body layout and pages 2+ are untouched.
 - Hold ONLY `{{ placeholders }}`, never deal data. Built by
   `tools/build_pa_template.py` (config-driven; one config per form) from
   `tools/_pa_struct_{brookridge,standard}.json` — faithful paragraph-level
