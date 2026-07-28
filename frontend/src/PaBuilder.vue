@@ -285,7 +285,7 @@ async function downloadPdf() {
 // via /api/pa/defaults — deployment details, never hard-coded (public repo).
 const esign = reactive({
   signer_name: 'James Plack', signer_email: '', esign_name: '', esign_url: '',
-  ready: false, mode: '',      // one-click DocuSign sending configured? demo or production?
+  ready: false, mode: '',      // one-click Demand Signatures sending configured? test or live?
 })
 const copyStatus = ref('')
 const sending = ref(false)
@@ -315,7 +315,7 @@ async function sendForSignature() {
       { name: esign.signer_name, email: esign.signer_email })
     sendStatus.type = 'ok'
     sendStatus.msg = `✓ Sent — ${esign.signer_name} and ${terms.participant_signatory_name || terms.participant_name} `
-      + `will each get a DocuSign email with the signature fields already placed.`
+      + `will each get a Demand Signatures email with the signature fields already placed.`
       + (r.mode === 'demo' ? ' (Demo mode: the documents carry a DEMONSTRATION watermark.)' : '')
   } catch (err) {
     sendStatus.type = 'err'
@@ -487,7 +487,7 @@ function openEsignSite() {
   <section class="card">
     <h2><span class="step">4</span> Send out for signature</h2>
     <p v-if="esign.ready" class="hint">
-      One click sends the finished agreement to both signers through DocuSign, with the
+      One click sends the finished agreement to both signers through Demand Signatures, with the
       signature fields already placed on the signature page and the Exhibit&nbsp;B certificate.
       The participant's email comes from the breakdown (or type it in Step 2 — the two stay in sync).
     </p>

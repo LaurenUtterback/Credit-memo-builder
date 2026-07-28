@@ -31,7 +31,7 @@ from .pa_models import PAExtraction, PARequest, PASendRequest, PATerms, Breakdow
 from . import pa_extraction as pa_extraction_service
 from . import pa_agreement as pa_agreement_service
 from . import pa_breakdown as pa_breakdown_service
-from . import esign_docusign as esign_service
+from . import esign_demand_signatures as esign_service
 from .loandocs_models import LoanDocsRequest, SettlementSheetResult
 from . import loandocs as loandocs_service
 from . import loandocs_sheet as loandocs_sheet_service
@@ -189,7 +189,7 @@ def pa_defaults() -> dict:
 
 @app.post("/api/pa/send")
 def pa_send(req: PASendRequest) -> dict:
-    """Render the agreement and send it out for signature via DocuSign."""
+    """Render the agreement and send it out for signature via Demand Signatures."""
     lender_email = req.lender_signer_email.strip()
     participant_email = (req.terms.participant_email or "").strip()
     participant_name = (
