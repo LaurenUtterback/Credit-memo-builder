@@ -30,6 +30,12 @@ table.kv.two td.k{width:22%;}
 tbody tr.total td{font-weight:bold;background:#eef1f4;border-top:1.25pt solid var(--rule-strong);}
 tbody tr.grand td{font-weight:bold;background:var(--navy);color:#fff;border-color:var(--navy-2);}
 .zebra tbody tr:nth-child(even) td{background:var(--zebra);}
+/* In zebra tables the even-row stripe outranks tr.grand's navy background (equal
+   specificity, later rule), leaving white text on a light stripe whenever the
+   grand row lands on an even index. Render zebra-table grand rows (Section VIII
+   Net Cash Flow) as bold black on the .total grey instead — readable at any row
+   count. Lauren, 2026-07-28. Section VI/IX grand rows keep the navy design. */
+.zebra tbody tr.grand td{background:#eef1f4;color:#000;border-color:var(--rule);border-top:1.25pt solid var(--rule-strong);}
 .src-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9pt;margin-top:8pt;}
 .src{border:.75pt solid var(--rule);border-top:2.5pt solid var(--navy);padding:7pt 9pt;background:#fafbfc;}
 .src .lab{font-family:Arial,Helvetica,sans-serif;font-size:7pt;letter-spacing:.12em;font-weight:bold;color:#000;text-transform:uppercase;margin-bottom:4pt;}
