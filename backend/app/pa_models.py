@@ -95,7 +95,7 @@ class PARequest(BaseModel):
 
 
 class PASendRequest(PARequest):
-    """Step 4: send the generated agreement out for signature (DocuSign)."""
+    """Step 4: send the generated agreement out for signature (Demand Signatures)."""
 
     lender_signer_name: str = "James Plack"
     lender_signer_email: str = ""

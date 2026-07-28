@@ -171,7 +171,7 @@ export async function paDefaults() {
   return res.json()
 }
 
-// Send the agreement out for signature via DocuSign (backend renders the PDF).
+// Send the agreement out for signature via Demand Signatures (backend renders the PDF).
 export async function paSend(terms, agreementType, lenderSigner) {
   const res = await fetch(`${BASE}/pa/send`, {
     method: 'POST',
