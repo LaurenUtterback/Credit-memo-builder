@@ -110,6 +110,13 @@ def test_spotrac_reply_is_parsed_and_compared():
     assert "Contract details" in sent and "Test Player" in sent
 
 
+def test_prompt_asks_for_the_cap_hit_not_the_base_salary():
+    # Lauren, 2026-08-06: the Spotrac figure is the season's CAP HIT (base +
+    # prorated signing bonus + counted bonuses), never the base salary alone.
+    assert "CAP HIT" in extraction.SALARY_CHECK_PROMPT
+    assert "NEVER return the base salary alone" in extraction.SALARY_CHECK_PROMPT
+
+
 def test_prompt_template_formats_cleanly():
     # The JSON example inside the prompt uses doubled braces; a stray single
     # brace would make .format() raise at extraction time, not at import time.

@@ -194,10 +194,14 @@ and is then cross-checked against the athlete's Spotrac page (Lauren,
 - `research.py`'s existing Spotrac fetch is done ONCE per extraction and now
   feeds two consumers: the Section V narrative and
   `extraction._check_salary_against_spotrac`, a third Claude call that reads
-  the page for the guaranteed compensation of the season being underwritten
-  (same composition rules as the documents: guaranteed base + that season's
-  guaranteed bonus/installment; partial guarantees use only the guaranteed
-  part).
+  the page for the season's CAP HIT (Lauren, 2026-08-06: base salary +
+  prorated signing bonus + other bonuses Spotrac counts for the season —
+  NEVER the base salary alone; with no cap hit on the page it composes base +
+  that season's bonuses). How much of the season Spotrac marks as GUARANTEED
+  is reported in the check's note, not netted out of the figure — so on
+  partially-guaranteed deals underwritten on the guaranteed basis, an amber
+  mismatch against the cap hit is EXPECTED and the note carries the
+  guaranteed portion.
 - The verdict ("match" | "mismatch" | "docs_only" | "spotrac_only" |
   "unavailable") is computed by `extraction.build_salary_check`
   (tolerance 0.1%, min $1), NEVER by the model. Carried on

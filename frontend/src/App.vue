@@ -121,9 +121,9 @@ const salaryVerifyMsg = computed(() => {
   if (!v) return ''
   const tag = v.season ? `Spotrac (${v.season} season)` : 'Spotrac'
   switch (v.verdict) {
-    case 'match': return `✓ Matches ${tag}: ${money(v.spotrac_salary)}`
-    case 'mismatch': return `⚠ ${tag} shows ${money(v.spotrac_salary)} — verify against the executed contract.`
-    case 'spotrac_only': return `⚠ ${tag} shows ${money(v.spotrac_salary)} — the documents produced no figure.`
+    case 'match': return `✓ Matches ${tag} cap hit: ${money(v.spotrac_salary)}`
+    case 'mismatch': return `⚠ ${tag} cap hit is ${money(v.spotrac_salary)} — verify against the executed contract.`
+    case 'spotrac_only': return `⚠ ${tag} cap hit is ${money(v.spotrac_salary)} — the documents produced no figure.`
     case 'docs_only': return `${tag}: no usable figure — documents only.`
     default: return 'Spotrac check could not be run — verify the salary manually.'
   }

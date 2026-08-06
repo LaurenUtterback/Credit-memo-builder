@@ -167,18 +167,18 @@ SOURCES:
 {sources}"""
 
 
-SALARY_CHECK_PROMPT = """You are a credit analyst at South River Capital verifying ONE figure for a credit memorandum: the GUARANTEED compensation for a professional athlete's current/upcoming season.
+SALARY_CHECK_PROMPT = """You are a credit analyst at South River Capital verifying ONE figure for a credit memorandum: a professional athlete's compensation for the current/upcoming season, as Spotrac presents it.
 
 Borrower: {who}
 Today's date: {today}
 From the deal documents: guaranteed season salary ${doc_salary}; total remaining contract value ${doc_remaining}.
 
-Below is the text of the athlete's Spotrac page. Using SPOTRAC ONLY (ignore the document figures above except to know which season is being underwritten), determine the guaranteed compensation for the current/upcoming season under the same composition rules the documents are read with: the season's guaranteed base salary PLUS any bonus that is guaranteed and paid every year of the contract (e.g. that season's signing-bonus installment or a guaranteed annual roster bonus). Exclude non-guaranteed salary, option years, one-time or performance/incentive bonuses, and endorsements. If Spotrac marks only part of the season's salary as guaranteed, use only the guaranteed part.
+Below is the text of the athlete's Spotrac page. Using SPOTRAC ONLY (ignore the document figures above except to know which season is being underwritten), determine the athlete's compensation for the current/upcoming season as Spotrac's CAP HIT for that season. The cap hit is the base salary PLUS the prorated signing bonus and any roster, workout, or other bonus amounts Spotrac counts for that season — NEVER return the base salary alone when Spotrac lists a cap hit or those bonus components for the season. If the page shows no cap hit (a league or page without one), compose the closest equivalent: the season's base salary plus that season's bonus amounts as Spotrac lists them. Use only the season being underwritten — exclude other seasons, one-time or performance/incentive bonuses Spotrac does not count for the season, and endorsements.
 
 Return ONLY raw JSON, no markdown, no backticks: {{"spotrac_salary":0,"season":null,"note":null}}
-- spotrac_salary: that guaranteed compensation as a number. Return 0 if the page cannot support a figure (no contract data, contract expired, or the page describes a DIFFERENT person than the borrower — check name, sport, team).
+- spotrac_salary: that season cap hit (or composed equivalent) as a number. Return 0 if the page cannot support a figure (no contract data, contract expired, or the page describes a DIFFERENT person than the borrower — check name, sport, team).
 - season: the season/year the figure belongs to (e.g. "2026"), else null.
-- note: 1-2 short plain-text sentences an underwriter can read: what Spotrac shows and how the figure was composed (e.g. guaranteed base + this season's installment), or why no figure could be determined. Never use markdown.
+- note: 1-2 short plain-text sentences an underwriter can read: the figure's composition as Spotrac shows it (base salary + prorated signing bonus + other bonuses), and how much of the season's compensation Spotrac marks as GUARANTEED — or why no figure could be determined. Never use markdown.
 
 SPOTRAC ({url}):
 {text}"""
@@ -220,8 +220,10 @@ def build_salary_check(doc_salary: float, spotrac_salary: float,
 
 
 def _check_salary_against_spotrac(client, data: dict, research: dict) -> dict:
-    """Third Claude call: read the Spotrac page for the guaranteed season
-    salary and compare it with what the documents produced.
+    """Third Claude call: read the Spotrac page for the season's CAP HIT
+    (base salary + prorated signing bonus + other counted bonuses — Lauren's
+    choice 2026-08-06, never the base salary alone) and compare it with what
+    the documents produced. Guarantee detail is reported in the note.
 
     The documents stay authoritative — this only powers the verification line
     under the Guaranteed salary field in Step 2 (and offers a figure when the

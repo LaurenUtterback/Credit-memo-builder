@@ -95,9 +95,10 @@ class SalaryCheck(BaseModel):
 
     A verification aid, never an underwriting source of record: the executed
     contract and its addenda stay authoritative, and this figure never reaches
-    the memo. ``spotrac_salary`` is Spotrac's view of the same
-    guaranteed-compensation figure the documents are read for (guaranteed base
-    plus that season's guaranteed bonus/installment). ``verdict`` is computed
+    the memo. ``spotrac_salary`` is Spotrac's CAP HIT for the season being
+    underwritten (base salary + prorated signing bonus + other counted
+    bonuses; never the base salary alone), with the guarantee detail carried
+    in ``note``. ``verdict`` is computed
     server-side (extraction.build_salary_check), never by the model:
     "match" | "mismatch" | "docs_only" | "spotrac_only" | "unavailable".
     """
