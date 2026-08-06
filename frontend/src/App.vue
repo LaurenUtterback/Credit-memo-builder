@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
-import { extractDocuments, memoHtml, downloadPdf, downloadWord } from './lib/api.js'
+import { extractDocuments, memoHtml, downloadPdf, downloadWord, rollforwardPreview } from './lib/api.js'
 import PaBuilder from './PaBuilder.vue'
 import LoanDocsBuilder from './LoanDocsBuilder.vue'
 import ClosingBinderBuilder from './ClosingBinderBuilder.vue'
@@ -37,6 +37,54 @@ const terms = reactive({
 const memoReady = ref(false)
 const memoHtmlContent = ref('')
 const genError = ref('')
+
+// --- stale-PFS debt roll-forward (rule 15) ---------------------------------
+// The preview comes from the backend so the review table and the memo can never
+// disagree. Every edit below mutates `extraction`, which is what gets sent when
+// the memo is generated — so an override here is what the memo renders.
+const rollforward = ref(null)
+const rfError = ref('')
+
+// The page-1 summary liability each schedule row rolls up into. A manually
+// added debt must pick one, or its paydown has no total to come out of.
+const DEBT_CATEGORIES = [
+  { value: 'mortgage_debt', label: 'Mortgage Debt (Schedule D)' },
+  { value: 'notes_payable_others', label: 'Notes Payable to: others (Schedule F)' },
+  { value: 'notes_payable_contract', label: 'Notes Payable: Contract Based (Schedule G)' },
+]
+
+async function refreshRollforward() {
+  rfError.value = ''
+  if (!extraction.value?.debt_schedule?.length) { rollforward.value = null; return }
+  try {
+    rollforward.value = await rollforwardPreview(buildTermsPayload(), extraction.value)
+  } catch (err) {
+    rollforward.value = null
+    rfError.value = err.message
+  }
+}
+
+function addDebt() {
+  // Extraction misses a schedule row (or the PFS has no schedules at all) —
+  // add it by hand so it still rolls forward.
+  if (!extraction.value) extraction.value = {}
+  if (!extraction.value.debt_schedule) extraction.value.debt_schedule = []
+  extraction.value.debt_schedule.push({
+    lender: '', category: 'notes_payable_others', balance: 0, payment: 0,
+    payment_period: 'monthly', origination: '', maturity: '', rate_pct: 0,
+    description: '', treatment: 'roll',
+  })
+  refreshRollforward()
+}
+
+function removeDebt(i) {
+  extraction.value.debt_schedule.splice(i, 1)
+  refreshRollforward()
+}
+
+const money = (n) => (n || n === 0)
+  ? n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+  : ''
 
 // --- derived ---------------------------------------------------------------
 const canGenerate = computed(() => terms.loan && terms.salary)
@@ -79,6 +127,7 @@ async function runExtract() {
     if (ed.loan_amount && !terms.loan) terms.loan = ed.loan_amount
     if (ed.interest_rate_pct && !terms.rate) terms.rate = ed.interest_rate_pct
     if (ed.origination_fee_pct && !terms.fee) terms.fee = ed.origination_fee_pct
+    await refreshRollforward()
     status.type = 'ok'
     status.msg = '✓ Extracted — confirm deal terms and generate'
   } catch (err) {
@@ -186,6 +235,101 @@ async function exportWord() {
       </div>
     </section>
 
+    <!-- Debt roll-forward: available whenever documents have been read, even
+         when the PFS carried no detail schedules — debts can be added by hand -->
+    <section v-if="extraction" class="card">
+      <h2><span class="step">2b</span> Debt roll-forward</h2>
+      <div class="rf-head">
+        <label class="inline">PFS statement date
+          <input v-model="extraction.pfs_date" type="date" @change="refreshRollforward" />
+        </label>
+        <p v-if="rollforward?.applied" class="hint">
+          <strong>{{ money(rollforward.total_paydown) }}</strong> comes off the
+          reported liabilities<span v-if="rollforward.months">
+          &mdash; rolled forward {{ rollforward.months }} months to
+          {{ rollforward.as_of }}, assuming payments were made as agreed</span>.
+        </p>
+        <p v-else class="hint">
+          Balances are used exactly as reported &mdash; the statement is current,
+          undated, or no debt is on a monthly schedule.
+        </p>
+      </div>
+
+      <table v-if="extraction.debt_schedule?.length" class="rf">
+        <thead>
+          <tr>
+            <th>Debt</th><th>Rolls into</th><th class="n">Reported</th>
+            <th class="n">Payment</th><th>Maturity</th><th>Treatment</th>
+            <th class="n">Adjusted</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(d, i) in extraction.debt_schedule" :key="i"
+              :class="{ held: !(rollforward?.rows?.[i]?.paydown > 0) }">
+            <td>
+              <input v-model="d.lender" class="mini wide" placeholder="Lender"
+                     @change="refreshRollforward" />
+            </td>
+            <td>
+              <select v-model="d.category" class="mini wide" @change="refreshRollforward">
+                <option value="">— none —</option>
+                <option v-for="c in DEBT_CATEGORIES" :key="c.value" :value="c.value">
+                  {{ c.label }}
+                </option>
+              </select>
+            </td>
+            <td class="n">
+              <input v-model.number="d.balance" type="number" class="mini"
+                     @change="refreshRollforward" />
+            </td>
+            <td class="n">
+              <input v-model.number="d.payment" type="number" class="mini"
+                     @change="refreshRollforward" />
+            </td>
+            <td>
+              <input v-model="d.maturity" class="mini wide" @change="refreshRollforward" />
+            </td>
+            <td>
+              <select v-model="d.treatment" class="mini wide" @change="refreshRollforward">
+                <option value="roll">Roll forward</option>
+                <option value="hold">Hold as reported</option>
+                <option value="zero">Zero out (repaid)</option>
+              </select>
+            </td>
+            <td class="n">
+              <strong v-if="rollforward?.rows?.[i]?.paydown > 0">
+                {{ money(rollforward.rows[i].adjusted) }}
+              </strong>
+              <span v-else class="reason">{{ rollforward?.rows?.[i]?.reason || '—' }}</span>
+            </td>
+            <td>
+              <button type="button" class="rm" @click="removeDebt(i)" title="Remove">✕</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-else class="hint">
+        No debt schedules were found in the uploaded documents. Add each financed
+        debt from the PFS's Schedule D / F / G below so it can be rolled forward.
+      </p>
+
+      <button type="button" class="ghost" @click="addDebt">+ Add debt</button>
+
+      <p v-for="(w, i) in rollforward?.warnings || []" :key="i" class="status err">⚠ {{ w }}</p>
+      <p v-if="rfError" class="status err">⚠ {{ rfError }}</p>
+      <p v-if="rollforward?.note" class="rf-note">{{ rollforward.note }}</p>
+      <p class="hint">
+        <strong>Roll forward</strong> reduces the balance by the payment for each
+        month since the statement date. <strong>Hold</strong> carries it exactly as
+        reported. <strong>Zero out</strong> shows it repaid in full &mdash; use it
+        for a debt being paid off at closing. &ldquo;Rolls into&rdquo; is the
+        Personal Financial Statement total the adjustment comes out of, so a debt
+        with none set changes no total. Payments include interest (and mortgage
+        payments on this form include taxes &amp; insurance), so the roll-forward
+        understates the true balance.
+      </p>
+    </section>
+
     <!-- Step 3: generate -->
     <section class="card">
       <h2><span class="step">3</span> Generate memo</h2>
@@ -221,6 +365,20 @@ body { margin: 0; background: #eceae3; font-family: system-ui, sans-serif; color
 .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 label { display: flex; flex-direction: column; font-size: 12px; gap: 4px; color: #555; }
 input, select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; background: #fff; }
+.rf-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
+.rf-head .hint { margin: 0 0 4px; }
+label.inline { flex-direction: column; }
+table.rf { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.rf th { text-align: left; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: #777; border-bottom: 1px solid #ddd; padding: 4px 6px; }
+table.rf td { padding: 4px 6px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+table.rf td.n, table.rf th.n { text-align: right; }
+table.rf td.c, table.rf th.c { text-align: center; }
+table.rf tr.held { color: #888; }
+.cat { display: block; font-size: 10px; color: #999; text-transform: capitalize; }
+.reason { font-size: 11px; font-style: italic; color: #999; }
+input.mini { padding: 3px 5px; font-size: 12px; width: 90px; text-align: right; }
+input.mini.wide { text-align: left; width: 100px; }
+.rf-note { background: #f7f6f2; border-left: 3px solid var(--gold); padding: 8px 10px; font-size: 12px; line-height: 1.5; color: #333; }
 button { background: var(--navy); color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; margin-right: 8px; margin-top: 8px; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 button.ghost { background: #fff; color: var(--navy); border: 1px solid var(--navy); }

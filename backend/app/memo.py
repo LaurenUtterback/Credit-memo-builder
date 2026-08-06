@@ -120,8 +120,36 @@ def _cf_rows_html(cf: dict) -> str:
     )
 
 
-def _pfs_html(ed: Extraction | None, facility_due: float, salary: float) -> str:
-    bs = calc.calc_balance_sheet(ed, facility_due)
+def _rollforward_footnote(rf: dict) -> str:
+    """The line under the PFS table saying these are not the reported figures.
+
+    A roll-forward and a zero-out can happen together or on their own, so the
+    sentence is assembled from whichever actually applied.
+    """
+    rolled = [r for r in rf["rows"] if r["paydown"] > 0 and not r["zeroed"]]
+    zeroed = [r for r in rf["rows"] if r["zeroed"]]
+    bits = []
+    if rolled:
+        bits.append(
+            f'rolled forward {rf["months"]} months from the '
+            f'{_fmt_short(rf["pfs_date"])} Personal Financial Statement to '
+            f'{_fmt_short(rf["as_of"])} at the scheduled monthly payments')
+    if zeroed:
+        bits.append(f'reduced by {len(zeroed)} '
+                    f'{"obligation" if len(zeroed) == 1 else "obligations"} '
+                    f'shown as repaid in full')
+    # The "as agreed" qualifier belongs to the roll-forward, so it trails the
+    # whole clause rather than sitting mid-sentence when a zero-out joins it.
+    qualifier = ', assuming payments were made as agreed' if rolled else ''
+    return (f'Liability balances are {" and ".join(bits)} '
+            f'(&minus;{_money(rf["total_paydown"])} in total){qualifier}. '
+            f'Revolving and non-monthly obligations are carried as reported.')
+
+
+def _pfs_html(ed: Extraction | None, facility_due: float, salary: float,
+              as_of: date | None = None) -> str:
+    bs = calc.calc_balance_sheet(ed, facility_due, as_of)
+    rf = bs.get("rollforward") or {}
     out = []
     if ed and ed.total_assets:
         for a in ed.assets:
@@ -138,7 +166,12 @@ def _pfs_html(ed: Extraction | None, facility_due: float, salary: float) -> str:
         out.append(f'<tr class="total"><td>Total Liabilities (incl. Proposed Facility)</td>'
                    f'<td class="num-col">{_money(bs["total_liab"])}</td></tr>')
         out.append(f'<tr class="grand"><td>Net Worth (Total Assets &minus; Total Liabilities)</td>'
-                   f'<td class="num-col">{_money(bs["net_worth"])}</td></tr>')
+                   f'<td class="num-col">{_signed(bs["net_worth"])}</td></tr>')
+        if rf.get("applied"):
+            # Rule 15 — say on the statement itself that these are not the
+            # figures the PFS reports, so no reader mistakes them for verbatim.
+            out.append(f'<tr class="note"><td colspan="2"><em>{_rollforward_footnote(rf)}'
+                       f'</em></td></tr>')
     else:
         out.append(
             f'<tr><td>Contract Receivable</td><td class="num-col">{_money(salary)}</td></tr>'
@@ -149,9 +182,27 @@ def _pfs_html(ed: Extraction | None, facility_due: float, salary: float) -> str:
             f'<tr class="total"><td>Total Liabilities (incl. Proposed Facility)</td>'
             f'<td class="num-col">{_money(facility_due)}</td></tr>'
             f'<tr class="grand"><td>Net Worth (Total Assets &minus; Total Liabilities)</td>'
-            f'<td class="num-col">{_money(salary - facility_due)}</td></tr>'
+            f'<td class="num-col">{_signed(salary - facility_due)}</td></tr>'
         )
     return "".join(out)
+
+
+def _credit_text(ed: Extraction | None, as_of: date | None) -> str:
+    """Section IV credit paragraph, with the rule 15 roll-forward appended.
+
+    The drafted roll-forward sentence states the reported figure, the payment
+    and window, the "assuming payments were made as agreed" qualifier, and each
+    maturity date — the way Lauren writes it by hand.
+    """
+    base = (ed.credit_notes if ed and ed.credit_notes
+            else "Credit report reviewed. No bankruptcies, no judgments, "
+                 "no tax liens on file.")
+    rf = calc.calc_debt_rollforward(ed, as_of)
+    if rf.get("note"):
+        base = f"{base.rstrip()} {rf['note']}"
+    for w in rf.get("warnings") or []:
+        base = f"{base.rstrip()} {w}"
+    return base
 
 
 def _uses_of_funds_html(uof: dict) -> str:
@@ -327,14 +378,15 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
                          else f"{terms.name or '[Borrower Name]'} is a Professional "
                               f"{sport or '[sport]'} player for the "
                               f"{terms.team or '[Team Name]'} of the {terms.league or '[League]'}."),
-        "credit_text": (ed.credit_notes if ed and ed.credit_notes
-                        else "Credit report reviewed. No bankruptcies, no judgments, no tax liens on file."),
+        # Rule 15: when the PFS was rolled forward, the drafted explanation is
+        # appended here — Lauren documents the roll-forward in this paragraph.
+        "credit_text": _credit_text(ed, date.today()),
         # Section VII (Contract Analysis) only. Section V (Project Sponsorship)
         # deliberately does NOT show the contract notes — Lauren, 2026-07-06.
         "contract_notes": ed.contract_notes if ed else "",
         "cf_html": _cf_rows_html(cf),
         "uses_html": _uses_of_funds_html(uof),
-        "pfs_html": _pfs_html(ed, facility_due, salary),
+        "pfs_html": _pfs_html(ed, facility_due, salary, date.today()),
         "repayment_html": _repayment_html(rep_rows, rep_totals),
         "doc_list_html": _doc_list_html(filenames),
     }

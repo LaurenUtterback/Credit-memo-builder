@@ -22,6 +22,7 @@ backend/                 FastAPI + the authoritative business logic
     calculations.py      ALL underwriting math and rules (the crown jewels)
     models.py            Pydantic models — the API contract
     extraction.py        Anthropic document extraction (holds the prompt)
+    doc_blocks.py        uploads -> Anthropic content blocks (all 3 uploaders)
     research.py          Wikipedia + Spotrac research on the athlete (Section V)
     memo.py              Renders the memo (Jinja2 HTML, PDF, Word)
     main.py              FastAPI routes
@@ -102,8 +103,77 @@ never silently.
     (e.g. from a captured narrative). The memo must never render
     "Professional Professional ...".
 
+17. STALE-PFS ROLL-FORWARD ("Method A" — Lauren's standing rule, 2026-08-05,
+    applied to every memo). When the PFS is more than a month older than the
+    memo date, each financed debt on its detail schedules is rolled forward:
+    `adjusted = reported − (monthly payment × months elapsed)`, where months
+    elapsed counts whole payments from the month AFTER the statement date
+    through the memo month (10/16/25 → 7/28/26 = 9). Clamped at $0 and never
+    past maturity. Left as reported: lines with no payment (credit cards and
+    other revolving debt), explicitly non-monthly payments, and CONTRACT-BASED
+    notes (Schedule G) whose pay period is blank — those are repaid from game
+    checks, not monthly. Each row's paydown is applied to the page-1 summary
+    liability it rolls up into (`category`), so Total Liabilities and Net Worth
+    run on adjusted figures. Rejected alternative: straight-line origination →
+    maturity (it moves a 30-year mortgage far less). Known and accepted:
+    payments include interest, and mortgage payments on the SureSports form
+    include taxes & insurance, so the method understates true balances.
+    `calc_debt_rollforward` / `_apply_rollforward` in calculations.py, fed by
+    the `pfs_date` + `debt_schedule` extraction fields (Schedules D/F/G). The
+    memo footnotes the PFS table and appends a drafted explanation to the
+    Credit paragraph (`_credit_text`). Each debt has a `treatment`: "roll"
+    (default), "hold" (carry as reported) or "zero" (repaid in full — the whole
+    balance leaves its summary liability, and unlike a roll-forward this does
+    NOT require a stale PFS). Step 2b of the UI shows reported vs adjusted per
+    debt, every field editable, previewed by `POST /api/memo/rollforward` so the
+    review table and the memo can never disagree. The step appears whenever
+    documents have been read — including when NO schedules were found — because
+    debts can be added by hand; an added debt must pick the summary liability it
+    rolls into (`category`) or its paydown is warned about, never silently
+    applied elsewhere. NOTE: the PFS text layer often
+    reaches Claude with columns scrambled — the prompt's ROW ALIGNMENT block
+    guards against pairing a payment with the wrong lender, and Step 2b exists
+    so the underwriter can catch what slips through.
+
 The Alvarado reference deal: $12,267,600 assets, $10,373,361 total liabilities,
 $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.
+
+## Uploaded files -> content blocks (`doc_blocks.py`)
+
+All three uploaders (`extraction.py`, `pa_extraction.py`, `loandocs_extraction.py`)
+build their message content with `build_document_blocks()`. Do NOT hand a file's
+declared MIME to the API as a document block's `media_type` — that was a real
+bug (fixed 2026-08-05): the API accepts only `application/pdf` there, and
+Windows reports `application/octet-stream` or an empty MIME for files pulled off
+the Z: share, so a genuine PDF could fail the whole extraction with a raw 400
+(`...document.source.base64.media_type: Input should be 'application/pdf'`).
+
+The file's MAGIC BYTES decide, never the declared MIME: PDF -> document block;
+PNG/JPEG/GIF/WEBP -> image block; .docx/.xlsx -> converted to text here
+(python-docx / openpyxl, `data_only=True`, capped at 400 rows/sheet) and sent as
+a text block labelled with the filename; .txt/.csv/.md/.json -> inlined text.
+Anything else (including legacy .doc/.xls) raises a RuntimeError NAMING THE FILE,
+which the routes turn into a 502 whose detail the UI shows — the user must always
+learn which document to convert. Locked by `tests/test_doc_blocks.py`.
+
+## When an extraction fails
+
+All three uploaders share `build_client()` / `log_request_manifest()` /
+`describe_api_error()` from `extraction.py`:
+- **Retries**: the client is built with `max_retries=5`, above the SDK's default
+  of 2 — that default was not enough; uploads that failed with a 500 succeeded
+  on a manual retry moments later.
+- **Manifest**: every extraction INFO-logs what it is about to send (filenames,
+  block type, size) BEFORE the call, so a failure is diagnosable afterwards.
+  Chasing a 500 on 2026-08-06 there was no such record and the request could not
+  be reproduced. `main.py` calls `logging.basicConfig` for this — without it
+  uvicorn configures only its own loggers and the app's INFO records vanish.
+  Sizes are measured PER BLOCK, not per upload: a Word/Excel file is converted
+  to text first (a real case: an 8,568 KB .docx became 111 KB of text), so
+  upload size would point the next investigation at the wrong file.
+- **Errors**: a 5xx is reported as Anthropic-side, with the request ID and the
+  advice to retry or split the upload — never as a bare status code. Locked by
+  `tests/test_extraction_diagnostics.py`.
 
 ## The extraction prompt
 

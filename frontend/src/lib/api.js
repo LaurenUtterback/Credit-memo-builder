@@ -42,6 +42,18 @@ export async function memoHtml(terms, extraction) {
   return res.text()
 }
 
+// Preview the stale-PFS roll-forward (rule 15). The math runs on the backend so
+// the review table shows exactly what the memo will render.
+export async function rollforwardPreview(terms, extraction) {
+  const res = await fetch(`${BASE}/memo/rollforward`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ terms, extraction }),
+  })
+  if (!res.ok) throw new Error(`Roll-forward preview failed (${res.status})`)
+  return res.json()
+}
+
 async function downloadBlob(path, terms, extraction, filename) {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',

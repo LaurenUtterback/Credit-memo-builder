@@ -5,6 +5,7 @@ Routes
 GET  /api/health           - liveness check
 POST /api/extract          - upload documents, get structured extraction back
 POST /api/memo/html        - render memo as HTML
+POST /api/memo/rollforward - preview the stale-PFS debt roll-forward
 POST /api/memo/pdf         - render memo as PDF (download)
 POST /api/memo/word        - render memo as Word .doc (download)
 POST /api/binder/pdf       - merge executed PDFs into an indexed closing binder
@@ -16,6 +17,7 @@ Run locally:  uvicorn app.main:app --reload --port 8000
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Optional
 
@@ -25,6 +27,7 @@ from fastapi.responses import Response
 from dotenv import load_dotenv
 
 from .models import Extraction, MemoRequest, UploadedDoc
+from . import calculations as calc
 from . import extraction as extraction_service
 from . import memo as memo_service
 from .pa_models import PAExtraction, PARequest, PASendRequest, PATerms, BreakdownResult
@@ -46,6 +49,14 @@ from . import binder_extraction as binder_extraction_service
 # is available however the server is launched. This does NOT rely on uvicorn's
 # --env-file flag, which silently does nothing unless python-dotenv is installed.
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+
+# Without this the app's own INFO records are dropped (uvicorn configures only
+# its own loggers), and the upload manifest logged before every extraction —
+# the only record of what a failed request actually contained — would vanish.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 app = FastAPI(
     title="Credit Memo Builder API",
@@ -112,6 +123,32 @@ def _safe_name(name: str) -> str:
 def memo_html(req: MemoRequest) -> Response:
     html = memo_service.render_html(req.terms, req.extraction, _filenames(req))
     return Response(content=html, media_type="text/html")
+
+
+@app.post("/api/memo/rollforward")
+def memo_rollforward(req: MemoRequest) -> dict:
+    """Preview the stale-PFS roll-forward (rule 15) for the Step 2 review table.
+
+    The math stays here rather than in the browser so the figures the user
+    reviews are exactly the ones the memo will render.
+    """
+    from datetime import date as _date
+
+    rf = calc.calc_debt_rollforward(req.extraction, _date.today())
+    return {
+        "applied": rf["applied"],
+        "pfs_date": rf["pfs_date"].isoformat() if rf["pfs_date"] else None,
+        "as_of": rf["as_of"].isoformat() if rf["as_of"] else None,
+        "months": rf["months"],
+        "total_paydown": rf["total_paydown"],
+        "note": rf["note"],
+        "warnings": rf["warnings"],
+        "rows": [
+            {**{k: v for k, v in r.items() if k != "maturity_date"},
+             "maturity_date": r["maturity_date"].isoformat() if r["maturity_date"] else None}
+            for r in rf["rows"]
+        ],
+    }
 
 
 @app.post("/api/memo/pdf")
