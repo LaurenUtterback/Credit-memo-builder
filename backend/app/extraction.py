@@ -13,10 +13,13 @@ capturing every liability and expenditure line, SSN redaction, and auto-loan
 folding are load-bearing — keep them in sync with the rules documented in
 calculations.py.
 
-After extraction, a SECOND Claude call composes the Section V (Project
-Sponsorship) narrative from public research on the athlete (Wikipedia +
-Spotrac, gathered by research.py) so the section describes the athlete, not
-just the facility. See `_compose_sponsorship`.
+After extraction, public research on the athlete (Wikipedia + Spotrac,
+gathered ONCE by research.py) feeds two more best-effort Claude calls: one
+composes the Section V (Project Sponsorship) narrative so the section
+describes the athlete, not just the facility (`_compose_sponsorship`), and
+one cross-checks the extracted guaranteed salary against the athlete's
+Spotrac page (`_check_salary_against_spotrac` — UI verification only, the
+documents stay authoritative).
 """
 
 from __future__ import annotations
@@ -148,7 +151,7 @@ Rules: assets and liabilities are arrays of {label, amount}. other_expenses is a
 CRITICAL — ROW ALIGNMENT. These schedules are tables, and the text layer of a scanned or Excel-exported PFS often reaches you with the columns out of order, so values can appear far from their own row. Every figure you return for a debt must come from the SAME TABLE ROW as that debt's lender: use the lender name and the Outstanding Amount as the anchor and read across that row for its payment, origination, maturity and rate. Do NOT pair a payment or a maturity date with a lender just because the two appear near each other in the text stream. If you cannot confidently tell which row a payment or maturity belongs to, return 0 / "" for it rather than attaching it to the wrong debt — a misplaced payment silently pays down the wrong loan in the memo. Revolving lines (a "Credit Cards" row, an unsecured note) normally show NO payment and NO maturity date on these forms: do not lend them a payment or maturity that belongs to a term loan on another row.
 - origination is the "Date of Origination" (Schedule F/G) or the "Purchase Year" (Schedule D), copied as shown. maturity is the "Loan Maturity Date" / "Maturity Date", copied as shown. Copy these two VERBATIM even when they look wrong or malformed (a typo such as "08/072053", or a placeholder such as "7/17/1905" or "1/0/1900") — do NOT correct, reformat, or invent them, and return "" when the cell is blank. The credit memo sanitizes them.
 - rate_pct is the schedule's stated Interest Rate as a percent number (13.5 for "13.5%"), 0 if blank. description is the "Reason for Debt" / collateral note (Schedule F/G) or the property address (Schedule D).
-These rows are DETAIL, not additional liabilities: they must ALSO stay inside the page-1 summary amounts in the liabilities array (a Schedule D mortgage is already inside "Mortgage Debt"; a Schedule F auto note is already inside "Notes Payable to: others"). Never add a schedule row to liabilities as its own line. If the documents contain no such schedules, return []. CRITICAL — capture the PROPOSED facility's deal terms exactly as the documents state them (a term sheet, approval, or commitment line such as "Loan Amount: $4,435,000", "Origination: 3%", "Rate: 13.5%", "Term: 6 months"): loan_amount is the loan / proposed facility PRINCIPAL as a numeric dollar amount (e.g. "$4.435M" -> 4435000, "$4,435,000" -> 4435000); interest_rate_pct is the facility's annual interest rate as a percent NUMBER (e.g. "13.5%" -> 13.5); origination_fee_pct is the origination/upfront/lender fee as a percent NUMBER (e.g. "3%" or "Origination: 3%" -> 3). Use 0 for any of these not stated in the documents. loan_term_months is the term/duration of the PROPOSED facility expressed in WHOLE months, as stated in the deal documents (e.g. a term sheet line such as "Term: 6 months", a stated loan period, or a "6 mo." note). If the term is stated in years, convert to months (1 year = 12 months). If the documents give only funding and maturity dates with no explicitly stated term, return 0 (the memo computes the span from the dates). Use 0 if no term is stated. facility_total_due is the proposed facility's TOTAL amount due (principal + interest) if any amortization schedule, payoff figure, or proposed-facility liability appears in the documents; otherwise 0. repayment_schedule is the proposed facility's repayment/amortization schedule WHEN the documents contain one (e.g., a payment/amortization table for the new loan): return an array with one object per scheduled payment, IN ORDER, each {"date","interest","principal","total"} where date is the payment date copied as shown (a short string such as "15-Jul-26"), interest and principal are that payment's dollar amounts (use 0 where a column is blank or zero — typically principal is 0 until the final balloon payment), and total is that payment's interest + principal. Copy the figures EXACTLY as the schedule lists them; do not recompute, round, or reorder. Capture ONLY the proposed facility's own schedule (not schedules for the borrower's other/existing debts). If the documents contain no repayment schedule for the proposed facility, return an empty array []. CRITICAL — uses_of_funds is the proposed facility's disbursement / sources-and-uses / settlement breakdown WHEN the documents contain one (e.g. a "Disbursement", "Uses of Funds", or settlement-statement table showing how the gross loan is applied): capture EVERY line provided, omitting NOTHING, as an object {"gross_loan_amount":0,"deductions":[{"label","amount"}],"additional_costs":[{"label","amount"}]}. gross_loan_amount is the full proposed facility (gross) amount. deductions are the fees and payoffs subtracted from the gross loan to reach the amount "to be disbursed to Borrower" — e.g. origination fee, underwriting fee, payoffs of existing loans (such as a "Bank Payments thru <date>" payoff line), and legal/closing costs. additional_costs are amounts funded from the loan and carved out of the to-Borrower figure to reach the NET disbursed — e.g. Death & Disgrace (DDD) insurance premium and Interest Reserve. Copy each label as shown and give every amount as a POSITIVE dollar magnitude (do not use negatives or parentheses). Do NOT include any subtotal/total lines themselves (e.g. "To be disbursed to Borrower", "Net to be Disbursed to Borrower") — those are recomputed. If the documents contain no disbursement breakdown, return null. Auto/vehicle loan balances must NOT appear as a separate row in the liabilities array — they are already included in "Notes Payable to: others"; if a document lists an auto loan balance not already within notes payable, fold it into the "Notes Payable to: others" amount instead of listing it separately. (Monthly auto payments still go in auto_payments for the cash flow.) CRITICAL — salary is the GUARANTEED compensation for the current/upcoming season: the guaranteed base salary PLUS every bonus that is guaranteed and paid every year of the contract (e.g. an annual signing-bonus installment, or a guaranteed yearly roster/reporting bonus). When the contract pays the athlete a guaranteed bonus each year on top of the base salary, ADD that bonus into salary — never report the base salary alone, and never ALSO count that bonus in other_income (no double counting). Signing-bonus installments and annual bonuses often DIFFER season to season: when the contract carries a year-by-year payment schedule, use the base salary AND the signing-bonus/bonus installment scheduled for THAT SPECIFIC current/upcoming season — never an average annual value and never another season's installment. WORKED EXAMPLE: the documents show a remaining contract value of $39,500,000, an annual professional-contract base salary of $1,000,000, and a guaranteed bonus (Bonus & Commission Income / signing-bonus installment) of $9,000,000 scheduled for the current season -> salary = 10000000 ($1,000,000 base + $9,000,000 guaranteed bonus for that specific season) and contract_remaining = 39500000. salary is NOT 1000000 (the base alone) and NOT 39500000 (the remaining/total contract value is never the salary). SECOND WORKED EXAMPLE (dated signing-bonus installments): a contract's SIGNING BONUS clause pays a total of $60,000,000 "payable in the installments and on the respective dates indicated below": July 15, 2022 $7,000,000; July 1, 2023 $9,000,000; July 1, 2024 $9,500,000; July 1, 2025 $9,000,000; July 1, 2026 $7,500,000; July 1, 2027 $6,750,000; July 1, 2028 $5,750,000; July 1, 2029 $5,500,000. If the season being underwritten is the one beginning in 2026, the installment added into salary is EXACTLY 7500000 (the July 1, 2026 payment) — with a $1,000,000 base salary for that season, salary = 8500000. It is NOT 60000000 (the total signing bonus), NOT an average installment, and NOT the 2025 or any other year's payment: match the installment whose payment date falls in the current/upcoming season being underwritten (per the funding date and deal documents). In that same example, contract_remaining counts the remaining installments from that season forward ($7,500,000 + $6,750,000 + $5,750,000 + $5,500,000 = $25,500,000) plus all remaining seasons' base salaries. CRITICAL — contract_remaining is the TOTAL REMAINING value of the player's contract in dollars: the sum of all compensation (base salaries plus scheduled bonuses/installments) for the current/upcoming season AND every remaining future season of the contract, as the documents state it. If the documents state a remaining or total contract value directly, use that figure. Use 0 if it cannot be determined. Still EXCLUDE everything that is not guaranteed or not paid annually: one-time bonuses, performance/incentive bonuses, non-guaranteed years, options, and endorsement income. If the contract distinguishes total compensation from guaranteed compensation, always use the guaranteed figure. In contract_notes, summarize the contract structure (total value, remaining value, term, guaranteed amount, current season base salary and any guaranteed bonus/installment for that season), state explicitly which portion is guaranteed, and show how the salary figure was composed (e.g. base + this season's bonus). sponsorship_narrative is a brief factual narrative about the ATHLETE themselves (background, career path, current team and role) if the documents support one; null otherwise. CRITICAL — capture EVERY line item from the Annual Expenditures section of the PFS, omitting NOTHING: map mortgage payments to mortgage_payments, automobile payments to auto_payments, insurance premiums to insurance, alimony/child support to alimony, student loans to student_loans, interest & principal on loans to interest_principal_loans, HOA dues to hoa_payments, and EVERY other expenditure line item (with its exact label and amount) into the other_expenses array. Also capture insurance premiums and alimony/child support whenever they appear in ANY other document. ssn_masked must NEVER contain a full Social Security or Tax ID number — return ONLY the last 4 digits formatted exactly as "XXX-XX-1234". If a full SSN appears in any document, redact it to that format. Do not echo a full SSN anywhere in your output."""
+These rows are DETAIL, not additional liabilities: they must ALSO stay inside the page-1 summary amounts in the liabilities array (a Schedule D mortgage is already inside "Mortgage Debt"; a Schedule F auto note is already inside "Notes Payable to: others"). Never add a schedule row to liabilities as its own line. If the documents contain no such schedules, return []. CRITICAL — capture the PROPOSED facility's deal terms exactly as the documents state them (a term sheet, approval, or commitment line such as "Loan Amount: $4,435,000", "Origination: 3%", "Rate: 13.5%", "Term: 6 months"): loan_amount is the loan / proposed facility PRINCIPAL as a numeric dollar amount (e.g. "$4.435M" -> 4435000, "$4,435,000" -> 4435000); interest_rate_pct is the facility's annual interest rate as a percent NUMBER (e.g. "13.5%" -> 13.5); origination_fee_pct is the origination/upfront/lender fee as a percent NUMBER (e.g. "3%" or "Origination: 3%" -> 3). Use 0 for any of these not stated in the documents. loan_term_months is the term/duration of the PROPOSED facility expressed in WHOLE months, as stated in the deal documents (e.g. a term sheet line such as "Term: 6 months", a stated loan period, or a "6 mo." note). If the term is stated in years, convert to months (1 year = 12 months). If the documents give only funding and maturity dates with no explicitly stated term, return 0 (the memo computes the span from the dates). Use 0 if no term is stated. facility_total_due is the proposed facility's TOTAL amount due (principal + interest) if any amortization schedule, payoff figure, or proposed-facility liability appears in the documents; otherwise 0. repayment_schedule is the proposed facility's repayment/amortization schedule WHEN the documents contain one (e.g., a payment/amortization table for the new loan): return an array with one object per scheduled payment, IN ORDER, each {"date","interest","principal","total"} where date is the payment date copied as shown (a short string such as "15-Jul-26"), interest and principal are that payment's dollar amounts (use 0 where a column is blank or zero — typically principal is 0 until the final balloon payment), and total is that payment's interest + principal. Copy the figures EXACTLY as the schedule lists them; do not recompute, round, or reorder. Capture ONLY the proposed facility's own schedule (not schedules for the borrower's other/existing debts). If the documents contain no repayment schedule for the proposed facility, return an empty array []. CRITICAL — uses_of_funds is the proposed facility's disbursement / sources-and-uses / settlement breakdown WHEN the documents contain one (e.g. a "Disbursement", "Uses of Funds", or settlement-statement table showing how the gross loan is applied): capture EVERY line provided, omitting NOTHING, as an object {"gross_loan_amount":0,"deductions":[{"label","amount"}],"additional_costs":[{"label","amount"}]}. gross_loan_amount is the full proposed facility (gross) amount. deductions are the fees and payoffs subtracted from the gross loan to reach the amount "to be disbursed to Borrower" — e.g. origination fee, underwriting fee, payoffs of existing loans (such as a "Bank Payments thru <date>" payoff line), and legal/closing costs. additional_costs are amounts funded from the loan and carved out of the to-Borrower figure to reach the NET disbursed — e.g. Death & Disgrace (DDD) insurance premium and Interest Reserve. Copy each label as shown and give every amount as a POSITIVE dollar magnitude (do not use negatives or parentheses). Do NOT include any subtotal/total lines themselves (e.g. "To be disbursed to Borrower", "Net to be Disbursed to Borrower") — those are recomputed. If the documents contain no disbursement breakdown, return null. Auto/vehicle loan balances must NOT appear as a separate row in the liabilities array — they are already included in "Notes Payable to: others"; if a document lists an auto loan balance not already within notes payable, fold it into the "Notes Payable to: others" amount instead of listing it separately. (Monthly auto payments still go in auto_payments for the cash flow.) CRITICAL — salary is the GUARANTEED compensation for the current/upcoming season: the guaranteed base salary PLUS every bonus that is guaranteed and paid every year of the contract (e.g. an annual signing-bonus installment, or a guaranteed yearly roster/reporting bonus). Settle this figure only after checking EVERY uploaded document for guarantee language — the contract's compensation paragraphs AND any separate guarantee addendum, rider, exhibit, or amendment (a guarantee is often documented apart from the salary paragraph, and may make only PART of the season salary guaranteed: e.g. a conditional salary guarantee addendum guaranteeing $1,500,000 of a $2,000,000 season salary means salary = 1500000), plus any term sheet or deal summary. When documents disagree, the executed contract and its addenda govern over any summary or term sheet. When the contract pays the athlete a guaranteed bonus each year on top of the base salary, ADD that bonus into salary — never report the base salary alone, and never ALSO count that bonus in other_income (no double counting). Signing-bonus installments and annual bonuses often DIFFER season to season: when the contract carries a year-by-year payment schedule, use the base salary AND the signing-bonus/bonus installment scheduled for THAT SPECIFIC current/upcoming season — never an average annual value and never another season's installment. WORKED EXAMPLE: the documents show a remaining contract value of $39,500,000, an annual professional-contract base salary of $1,000,000, and a guaranteed bonus (Bonus & Commission Income / signing-bonus installment) of $9,000,000 scheduled for the current season -> salary = 10000000 ($1,000,000 base + $9,000,000 guaranteed bonus for that specific season) and contract_remaining = 39500000. salary is NOT 1000000 (the base alone) and NOT 39500000 (the remaining/total contract value is never the salary). SECOND WORKED EXAMPLE (dated signing-bonus installments): a contract's SIGNING BONUS clause pays a total of $60,000,000 "payable in the installments and on the respective dates indicated below": July 15, 2022 $7,000,000; July 1, 2023 $9,000,000; July 1, 2024 $9,500,000; July 1, 2025 $9,000,000; July 1, 2026 $7,500,000; July 1, 2027 $6,750,000; July 1, 2028 $5,750,000; July 1, 2029 $5,500,000. If the season being underwritten is the one beginning in 2026, the installment added into salary is EXACTLY 7500000 (the July 1, 2026 payment) — with a $1,000,000 base salary for that season, salary = 8500000. It is NOT 60000000 (the total signing bonus), NOT an average installment, and NOT the 2025 or any other year's payment: match the installment whose payment date falls in the current/upcoming season being underwritten (per the funding date and deal documents). In that same example, contract_remaining counts the remaining installments from that season forward ($7,500,000 + $6,750,000 + $5,750,000 + $5,500,000 = $25,500,000) plus all remaining seasons' base salaries. CRITICAL — contract_remaining is the TOTAL REMAINING value of the player's contract in dollars: the sum of all compensation (base salaries plus scheduled bonuses/installments) for the current/upcoming season AND every remaining future season of the contract, as the documents state it. If the documents state a remaining or total contract value directly, use that figure. Use 0 if it cannot be determined. Still EXCLUDE everything that is not guaranteed or not paid annually: one-time bonuses, performance/incentive bonuses, non-guaranteed years, options, and endorsement income. If the contract distinguishes total compensation from guaranteed compensation, always use the guaranteed figure. In contract_notes, summarize the contract structure (total value, remaining value, term, guaranteed amount, current season base salary and any guaranteed bonus/installment for that season), state explicitly which portion is guaranteed, and show how the salary figure was composed (e.g. base + this season's bonus). sponsorship_narrative is a brief factual narrative about the ATHLETE themselves (background, career path, current team and role) if the documents support one; null otherwise. CRITICAL — capture EVERY line item from the Annual Expenditures section of the PFS, omitting NOTHING: map mortgage payments to mortgage_payments, automobile payments to auto_payments, insurance premiums to insurance, alimony/child support to alimony, student loans to student_loans, interest & principal on loans to interest_principal_loans, HOA dues to hoa_payments, and EVERY other expenditure line item (with its exact label and amount) into the other_expenses array. Also capture insurance premiums and alimony/child support whenever they appear in ANY other document. ssn_masked must NEVER contain a full Social Security or Tax ID number — return ONLY the last 4 digits formatted exactly as "XXX-XX-1234". If a full SSN appears in any document, redact it to that format. Do not echo a full SSN anywhere in your output."""
 
 
 SPONSORSHIP_PROMPT = """You are a credit analyst at South River Capital writing Section V — "Project Sponsorship" — of a credit memorandum for a proposed loan to a professional athlete.
@@ -164,7 +167,113 @@ SOURCES:
 {sources}"""
 
 
-def _compose_sponsorship(client, data: dict) -> str | None:
+SALARY_CHECK_PROMPT = """You are a credit analyst at South River Capital verifying ONE figure for a credit memorandum: the GUARANTEED compensation for a professional athlete's current/upcoming season.
+
+Borrower: {who}
+Today's date: {today}
+From the deal documents: guaranteed season salary ${doc_salary}; total remaining contract value ${doc_remaining}.
+
+Below is the text of the athlete's Spotrac page. Using SPOTRAC ONLY (ignore the document figures above except to know which season is being underwritten), determine the guaranteed compensation for the current/upcoming season under the same composition rules the documents are read with: the season's guaranteed base salary PLUS any bonus that is guaranteed and paid every year of the contract (e.g. that season's signing-bonus installment or a guaranteed annual roster bonus). Exclude non-guaranteed salary, option years, one-time or performance/incentive bonuses, and endorsements. If Spotrac marks only part of the season's salary as guaranteed, use only the guaranteed part.
+
+Return ONLY raw JSON, no markdown, no backticks: {{"spotrac_salary":0,"season":null,"note":null}}
+- spotrac_salary: that guaranteed compensation as a number. Return 0 if the page cannot support a figure (no contract data, contract expired, or the page describes a DIFFERENT person than the borrower — check name, sport, team).
+- season: the season/year the figure belongs to (e.g. "2026"), else null.
+- note: 1-2 short plain-text sentences an underwriter can read: what Spotrac shows and how the figure was composed (e.g. guaranteed base + this season's installment), or why no figure could be determined. Never use markdown.
+
+SPOTRAC ({url}):
+{text}"""
+
+
+# Two figures this close are the same figure — Spotrac occasionally rounds a
+# prorated bonus/installment slightly differently than the contract states it.
+_MATCH_TOLERANCE_PCT = 0.1
+
+
+def build_salary_check(doc_salary: float, spotrac_salary: float,
+                       spotrac_url: str | None, note: str,
+                       season: str | None = None) -> dict:
+    """Assemble the SalaryCheck payload (models.SalaryCheck as a dict).
+
+    The verdict is decided HERE, never by the model, so the UI's match/mismatch
+    flag is deterministic: "match"/"mismatch" when both sources produced a
+    figure, "spotrac_only"/"docs_only" when one did, "unavailable" when neither.
+    """
+    doc_salary = max(float(doc_salary or 0), 0.0)
+    spotrac_salary = max(float(spotrac_salary or 0), 0.0)
+    if doc_salary and spotrac_salary:
+        tolerance = max(doc_salary, spotrac_salary) * _MATCH_TOLERANCE_PCT / 100
+        verdict = ("match" if abs(doc_salary - spotrac_salary) <= max(tolerance, 1.0)
+                   else "mismatch")
+    elif spotrac_salary:
+        verdict = "spotrac_only"
+    elif doc_salary:
+        verdict = "docs_only"
+    else:
+        verdict = "unavailable"
+    return {
+        "spotrac_salary": spotrac_salary,
+        "season": season,
+        "spotrac_url": spotrac_url,
+        "verdict": verdict,
+        "note": note,
+    }
+
+
+def _check_salary_against_spotrac(client, data: dict, research: dict) -> dict:
+    """Third Claude call: read the Spotrac page for the guaranteed season
+    salary and compare it with what the documents produced.
+
+    The documents stay authoritative — this only powers the verification line
+    under the Guaranteed salary field in Step 2 (and offers a figure when the
+    documents produced none). Returns a SalaryCheck-shaped dict.
+    """
+    doc_salary = float(data.get("salary") or 0)
+    text, url = research.get("spotrac_text"), research.get("spotrac_url")
+    if not text:
+        return build_salary_check(
+            doc_salary, 0.0, url,
+            "Spotrac page could not be retrieved — verify the guaranteed salary "
+            "manually at spotrac.com.")
+
+    who = ", ".join(
+        str(part) for part in (
+            data.get("borrower_name"), data.get("sport"),
+            data.get("team"), data.get("league"),
+        ) if part
+    )
+    from datetime import date
+
+    message = client.messages.create(
+        model=EXTRACTION_MODEL,
+        max_tokens=400,
+        system=_CLAUDE_CODE_SYSTEM,
+        messages=[{
+            "role": "user",
+            "content": SALARY_CHECK_PROMPT.format(
+                who=who or "(name not extracted)",
+                today=date.today().isoformat(),
+                doc_salary=f"{doc_salary:,.0f}",
+                doc_remaining=f"{float(data.get('contract_remaining') or 0):,.0f}",
+                url=url,
+                text=text,
+            ),
+        }],
+    )
+    raw = "".join(b.text for b in message.content if b.type == "text").strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+        raw = raw.rsplit("```", 1)[0].strip()
+    parsed = json.loads(raw)
+    return build_salary_check(
+        doc_salary,
+        float(parsed.get("spotrac_salary") or 0),
+        url,
+        str(parsed.get("note") or "").strip(),
+        str(parsed.get("season") or "").strip() or None,
+    )
+
+
+def _compose_sponsorship(client, data: dict, research: dict) -> str | None:
     """Second Claude call: write Section V from public research + doc notes.
 
     The Project Sponsorship section is athlete-centric — researched from
@@ -177,7 +286,6 @@ def _compose_sponsorship(client, data: dict) -> str | None:
     if not name:
         return None
 
-    research = gather_athlete_research(name, data.get("sport"), data.get("league"))
     if not (research["wiki_text"] or research["spotrac_text"]):
         return None
 
@@ -270,14 +378,32 @@ def extract_documents(docs: list[UploadedDoc]) -> Extraction:
     if data.get("ssn_masked"):
         data["ssn_masked"] = mask_ssn(data["ssn_masked"])
 
+    # Public research (Wikipedia + Spotrac) is fetched ONCE and feeds two
+    # best-effort steps: the Section V narrative and the guaranteed-salary
+    # cross-check. gather_athlete_research never raises (per-source failures
+    # are swallowed inside), and neither step may ever break /api/extract.
+    name = (data.get("borrower_name") or "").strip()
+    research = gather_athlete_research(name, data.get("sport"), data.get("league"))
+
     # Section V (Project Sponsorship) is athlete-centric: researched from
-    # Wikipedia + Spotrac and composed by a second Claude call. Best-effort —
-    # any failure keeps whatever narrative the documents provided.
+    # Wikipedia + Spotrac and composed by a second Claude call. Any failure
+    # keeps whatever narrative the documents provided.
     try:
-        narrative = _compose_sponsorship(client, data)
+        narrative = _compose_sponsorship(client, data, research)
         if narrative:
             data["sponsorship_narrative"] = narrative
     except Exception as exc:  # noqa: BLE001 - research must never break extraction
         logging.getLogger(__name__).warning("Sponsorship research failed: %s", exc)
+
+    # Spotrac cross-check of the guaranteed salary (UI verification line under
+    # the Step 2 field; the documents stay authoritative for underwriting).
+    try:
+        data["salary_check"] = _check_salary_against_spotrac(client, data, research)
+    except Exception as exc:  # noqa: BLE001 - research must never break extraction
+        logging.getLogger(__name__).warning("Salary cross-check failed: %s", exc)
+        data["salary_check"] = build_salary_check(
+            data.get("salary") or 0, 0.0, research.get("spotrac_url"),
+            "The Spotrac cross-check could not be run — verify the guaranteed "
+            "salary manually at spotrac.com.")
 
     return Extraction(**data)

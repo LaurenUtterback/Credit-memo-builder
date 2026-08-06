@@ -89,6 +89,49 @@ const money = (n) => (n || n === 0)
 // --- derived ---------------------------------------------------------------
 const canGenerate = computed(() => terms.loan && terms.salary)
 
+// --- guaranteed-salary Spotrac cross-check ----------------------------------
+// The backend compared Spotrac against the DOCUMENTS' figure; here the verdict
+// is recomputed against whatever is in the field right now, so the line stays
+// truthful while the user edits. Tolerance mirrors extraction.build_salary_check
+// (0.1%, min $1). The documents stay authoritative — this is verification only.
+const VERDICT_CLASS = {
+  match: 'ok', mismatch: 'warn', spotrac_only: 'warn',
+  docs_only: 'muted', unavailable: 'muted',
+}
+
+const salaryVerify = computed(() => {
+  const c = extraction.value?.salary_check
+  if (!c) return null
+  const cur = Number(terms.salary) || 0
+  const spo = Number(c.spotrac_salary) || 0
+  let verdict
+  if (spo && cur) {
+    const tol = Math.max(Math.max(spo, cur) * 0.001, 1)
+    verdict = Math.abs(spo - cur) <= tol ? 'match' : 'mismatch'
+  } else if (spo) {
+    verdict = 'spotrac_only'
+  } else {
+    verdict = c.verdict === 'unavailable' && !cur ? 'unavailable' : 'docs_only'
+  }
+  return { ...c, verdict }
+})
+
+const salaryVerifyMsg = computed(() => {
+  const v = salaryVerify.value
+  if (!v) return ''
+  const tag = v.season ? `Spotrac (${v.season} season)` : 'Spotrac'
+  switch (v.verdict) {
+    case 'match': return `✓ Matches ${tag}: ${money(v.spotrac_salary)}`
+    case 'mismatch': return `⚠ ${tag} shows ${money(v.spotrac_salary)} — verify against the executed contract.`
+    case 'spotrac_only': return `⚠ ${tag} shows ${money(v.spotrac_salary)} — the documents produced no figure.`
+    case 'docs_only': return `${tag}: no usable figure — documents only.`
+    default: return 'Spotrac check could not be run — verify the salary manually.'
+  }
+})
+
+const showUseSpotrac = computed(() =>
+  ['mismatch', 'spotrac_only'].includes(salaryVerify.value?.verdict))
+
 // --- handlers --------------------------------------------------------------
 function onFiles(e) {
   // Accumulate across selections so the user can add documents one or several
@@ -122,14 +165,23 @@ async function runExtract() {
     }
     for (const [k, v] of Object.entries(map)) if (v && !terms[k]) terms[k] = v
     // Numeric deal terms pulled from the documents (term sheet): only fill blanks
-    // so a value the user already typed is never overwritten.
-    if (ed.salary && !terms.salary) terms.salary = ed.salary
+    // so a value the user already typed is never overwritten. The guaranteed
+    // salary prefers the documents; Spotrac fills it only when they gave nothing.
+    let salaryFromSpotrac = false
+    if (ed.salary && !terms.salary) {
+      terms.salary = ed.salary
+    } else if (!terms.salary && ed.salary_check?.spotrac_salary) {
+      terms.salary = ed.salary_check.spotrac_salary
+      salaryFromSpotrac = true
+    }
     if (ed.loan_amount && !terms.loan) terms.loan = ed.loan_amount
     if (ed.interest_rate_pct && !terms.rate) terms.rate = ed.interest_rate_pct
     if (ed.origination_fee_pct && !terms.fee) terms.fee = ed.origination_fee_pct
     await refreshRollforward()
     status.type = 'ok'
-    status.msg = '✓ Extracted — confirm deal terms and generate'
+    status.msg = salaryFromSpotrac
+      ? '✓ Extracted — the documents showed no guaranteed salary, so it was filled from Spotrac; verify it against the executed contract'
+      : '✓ Extracted — confirm deal terms and generate'
   } catch (err) {
     status.type = 'err'
     status.msg = 'Extraction failed: ' + err.message
@@ -216,7 +268,17 @@ async function exportWord() {
         <label>Team <input v-model="terms.team" /></label>
         <label>League <input v-model="terms.league" /></label>
         <label>Sport <input v-model="terms.sport" /></label>
-        <label>Guaranteed salary <input v-model.number="terms.salary" type="number" /></label>
+        <label>Guaranteed salary
+          <input v-model.number="terms.salary" type="number" />
+          <span v-if="salaryVerify" :class="['verify', VERDICT_CLASS[salaryVerify.verdict]]">
+            {{ salaryVerifyMsg }}
+            <button v-if="showUseSpotrac" type="button" class="use"
+                    @click="terms.salary = salaryVerify.spotrac_salary">Use Spotrac figure</button>
+            <a v-if="salaryVerify.spotrac_url" :href="salaryVerify.spotrac_url"
+               target="_blank" rel="noopener">view&nbsp;↗</a>
+          </span>
+          <span v-if="salaryVerify?.note" class="verify-note">{{ salaryVerify.note }}</span>
+        </label>
         <label>Loan amount <input v-model.number="terms.loan" type="number" /></label>
         <label>Loan type
           <select v-model="terms.loan_type">
@@ -379,6 +441,13 @@ table.rf tr.held { color: #888; }
 input.mini { padding: 3px 5px; font-size: 12px; width: 90px; text-align: right; }
 input.mini.wide { text-align: left; width: 100px; }
 .rf-note { background: #f7f6f2; border-left: 3px solid var(--gold); padding: 8px 10px; font-size: 12px; line-height: 1.5; color: #333; }
+.verify { font-size: 11px; line-height: 1.45; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.verify.ok { color: #0f6e56; }
+.verify.warn { color: #9a6b00; }
+.verify.muted { color: #888; }
+.verify a { color: inherit; }
+.verify .use { background: none; border: 0; padding: 0; margin: 0; color: #0c447c; text-decoration: underline; cursor: pointer; font-size: 11px; font-weight: 600; }
+.verify-note { font-size: 11px; line-height: 1.45; color: #888; font-style: italic; }
 button { background: var(--navy); color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; margin-right: 8px; margin-top: 8px; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 button.ghost { background: #fff; color: var(--navy); border: 1px solid var(--navy); }

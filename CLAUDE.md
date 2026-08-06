@@ -182,6 +182,38 @@ guaranteed-compensation-only salary (base + guaranteed annual bonuses),
 capturing every liability/expenditure line verbatim, auto-loan folding, and SSN
 redaction are load-bearing. Keep them consistent with the rules above.
 
+## Guaranteed-salary Spotrac cross-check (Step 2)
+
+The extracted guaranteed salary is settled from ALL uploaded documents (the
+prompt explicitly sweeps the contract's compensation paragraphs, separate
+guarantee addenda/riders/exhibits — which may guarantee only PART of the
+season salary — and term sheets; the executed contract governs on conflict)
+and is then cross-checked against the athlete's Spotrac page (Lauren,
+2026-08-06):
+
+- `research.py`'s existing Spotrac fetch is done ONCE per extraction and now
+  feeds two consumers: the Section V narrative and
+  `extraction._check_salary_against_spotrac`, a third Claude call that reads
+  the page for the guaranteed compensation of the season being underwritten
+  (same composition rules as the documents: guaranteed base + that season's
+  guaranteed bonus/installment; partial guarantees use only the guaranteed
+  part).
+- The verdict ("match" | "mismatch" | "docs_only" | "spotrac_only" |
+  "unavailable") is computed by `extraction.build_salary_check`
+  (tolerance 0.1%, min $1), NEVER by the model. Carried on
+  `Extraction.salary_check` (models.SalaryCheck). Locked by
+  `tests/test_salary_check.py`.
+- UI-only, best-effort verification: it must never break /api/extract, and
+  the Spotrac figure NEVER reaches the memo's numbers — the documents stay
+  authoritative. The one exception is convenience prefill: when the documents
+  produce NO salary, the Step 2 field is filled from Spotrac, clearly labeled
+  in the status line and the field's verification line.
+- App.vue recomputes the verdict live against whatever is in the field
+  (`salaryVerify`, mirroring the same tolerance), shows ✓/⚠ + Spotrac's note
+  and a link under the Guaranteed salary input, and offers a
+  "Use Spotrac figure" button on mismatch — using it is the underwriter's
+  decision, the app only types the number.
+
 ## Section V — Project Sponsorship research
 
 Section V describes the ATHLETE and their playing career ONLY (background,

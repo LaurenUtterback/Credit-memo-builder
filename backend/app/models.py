@@ -90,6 +90,24 @@ class DebtScheduleRow(BaseModel):
     treatment: str = "roll"
 
 
+class SalaryCheck(BaseModel):
+    """Spotrac cross-check of the guaranteed season salary (shown in Step 2).
+
+    A verification aid, never an underwriting source of record: the executed
+    contract and its addenda stay authoritative, and this figure never reaches
+    the memo. ``spotrac_salary`` is Spotrac's view of the same
+    guaranteed-compensation figure the documents are read for (guaranteed base
+    plus that season's guaranteed bonus/installment). ``verdict`` is computed
+    server-side (extraction.build_salary_check), never by the model:
+    "match" | "mismatch" | "docs_only" | "spotrac_only" | "unavailable".
+    """
+    spotrac_salary: float = 0.0
+    season: Optional[str] = None      # the season the figure belongs to, e.g. "2026"
+    spotrac_url: Optional[str] = None
+    verdict: str = "unavailable"
+    note: str = ""                    # one-line plain-text explanation for the underwriter
+
+
 class Extraction(BaseModel):
     """Structured data pulled from uploaded documents by Claude.
 
@@ -156,6 +174,10 @@ class Extraction(BaseModel):
     credit_notes: Optional[str] = None
     contract_notes: Optional[str] = None
     sponsorship_narrative: Optional[str] = None
+
+    # Spotrac cross-check of `salary`, attached after extraction (best-effort,
+    # UI-only — see SalaryCheck). None only on extractions from before the check.
+    salary_check: Optional[SalaryCheck] = None
 
 
 class DealTerms(BaseModel):
