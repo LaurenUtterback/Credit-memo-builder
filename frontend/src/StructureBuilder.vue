@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { structureCadences, structureCadence, structureExtract, structurePropose, structureSelect } from './lib/api.js'
+import { structureCadences, structureCadence, structureExtract, structurePropose, structureSelect, structureSummaryPdf } from './lib/api.js'
 
 // Deal terms/extraction confirmed on the Credit Memo tab, plus the App-owned
 // Loan Documents store this tab pushes the SELECTED structure into.
@@ -53,6 +53,9 @@ const pullMsg = ref('')
 const selectedKey = ref('')
 const pendingPush = ref(null)
 const applied = ref('')
+
+const exporting = ref(false)
+const exportErr = ref('')
 
 const FREQ_LABELS = {
   weekly: 'Weekly', semimonthly: 'Semi-monthly (1st & 15th)', monthly: 'Monthly',
@@ -345,6 +348,20 @@ async function run() {
   running.value = false
 }
 
+// --- export ----------------------------------------------------------------
+// The sendable artifact: every option considered, the recommendation, and the
+// cash flow behind it, in the credit memorandum's house design.
+async function exportPdf() {
+  exporting.value = true
+  exportErr.value = ''
+  try {
+    await structureSummaryPdf(payload())
+  } catch (err) {
+    exportErr.value = err.message
+  }
+  exporting.value = false
+}
+
 // --- selection & push ------------------------------------------------------
 async function choose(key) {
   selectedKey.value = key
@@ -439,6 +456,12 @@ function applyToLoanDocs() {
   <!-- Step 2: terms being tested -->
   <section class="card">
     <h2><span class="step">3</span> Terms being tested</h2>
+    <p class="hint">
+      These are <strong>your</strong> terms — what you're proposing to lend, not something
+      read off the borrower's documents. They fill in automatically only if a term sheet
+      happens to be in the upload. The tool tests the structure against them; it does not
+      set the rate or the points.
+    </p>
     <div class="grid">
       <label>Loan amount <input v-model.number="inputs.loan_amount" type="number" /></label>
       <label>Rate (% p.a.) <input v-model.number="inputs.interest_rate" type="number" step="0.01" /></label>
@@ -577,6 +600,14 @@ function applyToLoanDocs() {
       <p class="hint" v-for="n in result.notes" :key="n">· {{ n }}</p>
 
       <h3 class="sub">Candidate structures</h3>
+      <p class="hint">
+        <button class="ghost" :disabled="exporting" @click="exportPdf">
+          {{ exporting ? 'Building…' : '📕 Export all options as PDF' }}
+        </button>
+        A one-look summary for credit — every option including the ones that fail,
+        the recommendation and its reasoning, and the cash flow behind it.
+      </p>
+      <p v-if="exportErr" class="status err">⚠ {{ exportErr }}</p>
       <div v-for="c in result.candidates" :key="c.key"
            :class="['cand', { rec: c.recommended, chosen: selectedKey === c.key }]">
         <div class="cand-head">

@@ -48,6 +48,7 @@ from .structure_models import (
 from . import structure as structure_service
 from .structure_extraction import StructureExtraction
 from . import structure_extraction as structure_extraction_service
+from . import structure_summary as structure_summary_service
 from .binder_extraction import BinderInfoExtraction, BinderSortResult
 from . import binder_extraction as binder_extraction_service
 
@@ -114,7 +115,7 @@ def _filenames(req: MemoRequest) -> list[str]:
 
 
 def _safe_name(name: str) -> str:
-    """ASCII-safe borrower name for Content-Disposition (e.g. JosÃƒÂ© -> Jose)."""
+    """ASCII-safe borrower name for Content-Disposition (e.g. JosÃƒÆ’Ã‚Â© -> Jose)."""
     import unicodedata
     ascii_name = (
         unicodedata.normalize("NFKD", name or "Borrower")
@@ -471,6 +472,34 @@ def structure_propose(req: StructureRequest) -> StructureResult:
     if (req.inputs.loan_amount or 0) <= 0:
         raise HTTPException(status_code=400, detail="A loan amount is required.")
     return structure_service.propose_structures(req.inputs)
+
+
+@app.post("/api/structure/summary/html")
+def structure_summary_html(req: StructureRequest) -> Response:
+    """Preview the structure summary (options + cash flow) as HTML."""
+    result = structure_service.propose_structures(req.inputs)
+    html = structure_summary_service.render_html(result, req.inputs)
+    return Response(content=html, media_type="text/html")
+
+
+@app.post("/api/structure/summary/pdf")
+def structure_summary_pdf(req: StructureRequest) -> Response:
+    """The sendable version: every option considered, the recommendation and
+    the cash flow behind it, in the credit memorandum's house design."""
+    if (req.inputs.loan_amount or 0) <= 0:
+        raise HTTPException(status_code=400, detail="A loan amount is required.")
+    result = structure_service.propose_structures(req.inputs)
+    html = structure_summary_service.render_html(result, req.inputs)
+    try:
+        pdf = structure_summary_service.render_pdf(html)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    name = structure_summary_service.filename(req.inputs)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 
 @app.post("/api/structure/select")

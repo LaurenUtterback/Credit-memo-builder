@@ -365,7 +365,7 @@ def _bullet_reserve(inputs: StructureInputs) -> StructureCandidate:
         name="Bullet + interest reserve",
         amortization_type="balloon",
         rationale=(
-            f"No scheduled payments. Interest of {interest:,.0f} is reserved out of "
+            f"No scheduled payments. Interest of ${interest:,.0f} is reserved out of "
             f"proceeds at funding and the facility retires in a single payment 30 "
             f"days after the {label}. Use when the repayment source is a one-time "
             f"event rather than recurring income — there is nothing to service "

@@ -460,3 +460,20 @@ export async function structureExtract(files) {
   }
   return res.json()
 }
+
+// The sendable summary: every option considered, the recommendation and the
+// cash flow behind it, in the credit memorandum's house design.
+export async function structureSummaryPdf(inputs) {
+  const res = await fetch(`${BASE}/structure/summary/pdf`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inputs }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Could not build the summary (${res.status})`)
+  }
+  const cd = res.headers.get('Content-Disposition') || ''
+  const m = cd.match(/filename="([^"]+)"/)
+  triggerDownload(await res.blob(), m ? m[1] : 'Proposed_Structure.pdf')
+}
