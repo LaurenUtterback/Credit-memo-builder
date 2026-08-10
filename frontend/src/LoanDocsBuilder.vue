@@ -28,6 +28,9 @@ const TERM_DEFAULTS = {
   lender_signatory_title: 'CEO',
   account_name: '', bank_name: '', bank_account_no: '', bank_aba: '',
   bank_address_1: '', bank_address_2: '', bank_contact: '', bank_phone: '',
+  // Exhibit A override rows + where they came from (workbook / credit memo
+  // extraction / Structure tab). Null means the backend computes the schedule.
+  repayment_schedule: null, schedule_source: '',
 }
 const terms = props.termsStore || reactive({ ...TERM_DEFAULTS })
 // seed keys the store doesn't have yet (first mount); values already typed
@@ -62,10 +65,11 @@ const settlementLines = ref([
 // disbursed to Borrower (Est)" row, mirroring the workbook.
 const postLines = ref([])
 
-// Exhibit A repayment rows pulled from the workbook's Sheet1 or the memo
-// extraction (else the backend computes interest-monthly + balloon).
-const pulledSchedule = ref(null)
-const scheduleSource = ref('')
+// Exhibit A repayment rows pulled from the workbook's Sheet1, the memo
+// extraction, or pushed over from the Structure tab (else the backend computes
+// interest-monthly + balloon). These live in the SHARED terms store, not local
+// refs, so a structure selected on the Structure tab lands here and survives
+// tab switches like every other field on this tab.
 
 // Amortization workbook (.xlsx) upload state
 const sheetLoading = ref(false)
@@ -168,12 +172,12 @@ function pullFromMemo() {
 
   // Exhibit A repayment rows captured from the deal documents, when present —
   // but a schedule read from the uploaded workbook keeps priority.
-  if (scheduleSource.value !== 'workbook') {
+  if (terms.schedule_source !== 'workbook') {
     if (Array.isArray(ed.repayment_schedule) && ed.repayment_schedule.length) {
-      pulledSchedule.value = ed.repayment_schedule.map((r) => ({
+      terms.repayment_schedule = ed.repayment_schedule.map((r) => ({
         date: r.date, interest: r.interest, principal: r.principal, total: r.total,
       }))
-      scheduleSource.value = 'credit memo extraction'
+      terms.schedule_source = 'credit memo extraction'
     }
   }
 
@@ -335,8 +339,8 @@ async function onSheetFile(e) {
       }
     }
     if (r.schedule && r.schedule.length) {
-      pulledSchedule.value = r.schedule
-      scheduleSource.value = 'workbook'
+      terms.repayment_schedule = r.schedule
+      terms.schedule_source = 'workbook'
       bits.push(`${r.schedule.length} Exhibit A payment(s) from "${r.schedule_sheet}"`)
     }
     if (r.disbursed_check != null) {
@@ -401,7 +405,7 @@ function buildPayload() {
       settlement_post_lines: postLines.value
         .filter((l) => l.label || l.amount)
         .map((l) => ({ label: l.label, amount: Number(l.amount) || 0 })),
-      repayment_schedule: pulledSchedule.value,
+      repayment_schedule: terms.repayment_schedule,
     },
     include: { ...include },
   }
@@ -542,8 +546,8 @@ async function exportWord() {
       <p class="hint">Upload the deal's amortization workbook (a "Balloon" or "Fully Amortized" .xlsx): the fee lines fill the Memo of Settlement, and Sheet1's repayment table becomes the Note's Exhibit A — Loan Repayments by Month.</p>
       <input type="file" accept=".xlsx,.xlsm" @change="onSheetFile" :disabled="sheetLoading" />
       <p v-if="sheetStatus.msg" :class="['status', sheetStatus.type]">{{ sheetStatus.msg }}</p>
-      <p v-if="pulledSchedule" class="hint">Exhibit A schedule: <strong>{{ pulledSchedule.length }} payment(s)</strong> from the {{ scheduleSource }}.
-        <button type="button" class="rm-link" @click="pulledSchedule = null; scheduleSource = ''">✕ clear (compute from deal terms instead)</button></p>
+      <p v-if="terms.repayment_schedule" class="hint">Exhibit A schedule: <strong>{{ terms.repayment_schedule.length }} payment(s)</strong> from the {{ terms.schedule_source }}.
+        <button type="button" class="rm-link" @click="terms.repayment_schedule = null; terms.schedule_source = ''">✕ clear (compute from deal terms instead)</button></p>
 
       <h3 class="grp">Settlement deductions</h3>
       <p class="hint">Deductions from the gross loan (entered positive; printed in parentheses). "To be disbursed" is always recomputed.</p>

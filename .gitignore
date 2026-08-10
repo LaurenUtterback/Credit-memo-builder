@@ -36,3 +36,6 @@ backend/tools/
 
 frontend/public/_bd_test.xlsx
 .claude/
+
+# Generated PA field-test renders — contain real deal data, never commit (public repo)
+_fieldtest_*.pdf
