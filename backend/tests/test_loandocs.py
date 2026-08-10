@@ -18,11 +18,22 @@ from pathlib import Path
 
 import pytest
 
-from app.loandocs import render_html
+from app.loandocs import _BANK_ENV, render_html
 from app.loandocs_models import LoanDocsInclude, LoanDocTerms, SettlementLine
 
 _TOKENS_FILE = (Path(__file__).parents[1] / "tools"
                 / "_loandocs_audit_tokens.json")
+
+
+@pytest.fixture(autouse=True)
+def _scrub_bank_env(monkeypatch):
+    # Any test module that imports app.main (test_structure.py does, for its
+    # TestClient) runs load_dotenv() at pytest collection, putting the real
+    # SRC_BANK_* values into the environment before these tests run. Scrub
+    # them so the default render's wire block stays blank and the tripwire
+    # keeps checking the template — not this machine's .env.
+    for env in _BANK_ENV.values():
+        monkeypatch.delenv(env, raising=False)
 
 
 def _source_deal_tokens() -> list[str]:
