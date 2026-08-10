@@ -380,3 +380,71 @@ def test_extract_route_never_returns_a_bare_500(monkeypatch):
 
 def test_extract_route_still_400s_with_no_documents():
     assert client.post("/api/structure/extract", json=[]).status_code == 400
+
+
+# --- Sendable summary ------------------------------------------------------
+#
+# What actually goes to credit. It must show EVERY option, including the ones
+# that fail — a structure memo that shows only the answer hides the argument.
+
+from app import structure_summary as ss
+
+
+def test_summary_shows_every_option_including_the_failures():
+    inputs = nfl_inputs(loan_amount=2_925_000.0, salary=1_443_116.0,
+                        other_debt_annual=327_768.0, funding_date=date(2026, 8, 1),
+                        target_term_months=6, salary_guaranteed=False)
+    result = st.propose_structures(inputs)
+    html = ss.render_html(result, inputs)
+    assert [c for c in result.candidates if not c.passes], "scenario should fail some"
+    for c in result.candidates:
+        assert c.name in html, f"{c.name} missing from the summary"
+    assert "Fails" in html and "Recommended" in html
+    # the reasoning, not just the verdict
+    assert "Options Considered" in html and "Projected Cash Flow" in html
+
+
+def test_summary_uses_the_house_negative_format():
+    """Negatives render as ($39,340), the way the memo does — never $-39,340."""
+    assert ss._money(-39_340) == "($39,340)"
+    assert ss._money(321_634) == "$321,634"
+    assert ss._money(None) == "—"
+
+    inputs = nfl_inputs(funding_date=date(2026, 8, 1))
+    html = ss.render_html(st.propose_structures(inputs), inputs)
+    assert "$-" not in html, "a negative leaked through unformatted"
+
+
+def test_summary_states_the_leverage_and_the_guarantee_caveat():
+    inputs = nfl_inputs(loan_amount=2_925_000.0, salary=1_443_116.0,
+                        other_debt_annual=327_768.0, salary_guaranteed=False)
+    ctx = ss.build_context(st.propose_structures(inputs), inputs)
+    assert ctx["leverage"].endswith("x")
+    assert ctx["guaranteed"] is False        # template prints "(not fully guaranteed)"
+    assert ctx["recommended"] is not None
+
+
+def test_summary_survives_a_deal_with_almost_nothing_filled_in():
+    """No term sheet is uploaded on these deals, so most fields are blank."""
+    inputs = StructureInputs(loan_amount=500_000.0)
+    html = ss.render_html(st.propose_structures(inputs), inputs)
+    assert "Proposed Loan Structure" in html
+
+
+def test_summary_filename_is_safe():
+    assert ss.filename(StructureInputs(borrower_name="José E. Porter Jr.")) \
+        .startswith("Proposed_Structure_")
+    assert ss.filename(StructureInputs()) == "Proposed_Structure_Borrower.pdf"
+
+
+def test_summary_html_route_renders():
+    res = client.post("/api/structure/summary/html",
+                      json={"inputs": nfl_inputs().model_dump(mode="json")})
+    assert res.status_code == 200
+    assert "Proposed Loan Structure" in res.text
+
+
+def test_summary_pdf_route_requires_a_loan_amount():
+    res = client.post("/api/structure/summary/pdf",
+                      json={"inputs": nfl_inputs(loan_amount=0).model_dump(mode="json")})
+    assert res.status_code == 400
