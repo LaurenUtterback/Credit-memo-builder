@@ -653,3 +653,106 @@ accumulates files (non-PDFs are skipped with a notice), each row has an
 editable title (defaulting to the cleaned-up filename), ↑/↓ reordering and
 remove; generation previews the binder inline and the download button reuses
 the same blob.
+
+## Deal Structuring
+
+The FIRST tab and the app's landing view (`view === 'structure'`, App.vue's
+default) — the structure is decided from the borrower's cash flow BEFORE the
+memo underwrites it, not after. It inverts what the other builders assume:
+instead of taking the presented loan structure as given, it DERIVES one from how
+the borrower actually gets paid, and scores candidates against a month-by-month
+cash flow projection.
+
+The two variables that decide a structure are TIMING (when cash arrives — the
+league pay cadence) and CERTAINTY (whether it is contractually locked):
+
+    dated & certain + recurring  -> amortize on the pay cadence
+    dated & certain + one event  -> bullet maturing just after the event
+    undated / contingent         -> bullet + interest reserve
+
+Non-guaranteed income argues for amortizing FAST while the money flows; a cut
+or injury ends it. Guaranteed money can support a balloon.
+
+The tab is driven by DOCUMENT UPLOAD, not manual entry (the user's explicit
+requirement, 2026-08-10): drop the contract / term sheet / PFS on Step 1 and
+`POST /api/structure/extract` fills everything below. Every field stays editable
+afterwards, and "Pull from the Credit Memo tab" remains as a secondary path.
+
+Backend pieces:
+- `app/structure_models.py` — `LeagueCadence`, `BonusEvent`, `StructureInputs`,
+  `CashFlowMonth`, `StructurePayment`, `StructureCandidate`, `StructureResult`.
+  NOTE: `BonusEvent` and `StructurePayment` both have a field named `date`,
+  which shadows the type when Pydantic resolves annotations — the module
+  imports `date as _date` for that reason. Do not "tidy" it back.
+- `app/structure.py` — `LEAGUE_CADENCES` (NFL/NBA/MLB/NHL/MLS defaults plus
+  aliases; unknown leagues fall back to level monthly, never raising),
+  `pay_dates()`, `project_cash_flow()`, the four candidate builders, `_score()`,
+  `propose_structures()`, `to_schedule_rows()`.
+- `app/structure_extraction.py` + `POST /api/structure/extract` — reads the deal
+  documents for the structuring inputs, reusing the shared `_ask_claude` helper
+  (same subscription usage-token auth as the other extractors). Its prompt
+  carries the memo's guaranteed-compensation-only salary rule (rule 9) and is
+  emphatic about three things the model gets wrong otherwise: a CONDITIONAL
+  guarantee is `salary_guaranteed: false` (it flips which structures make
+  sense); a guaranteed installment already inside `salary` must NOT be repeated
+  in `bonus_events`; and an unstated pay cadence returns null so the league
+  default applies, never an invented one. `expected_exit_label` is capped at a
+  short noun phrase and `notes` at ~5 items — the model returns an essay in both
+  otherwise.
+- Routes: `GET /api/structure/cadences`, `GET /api/structure/cadence/{league}`,
+  `POST /api/structure/extract`, `POST /api/structure/propose`,
+  `POST /api/structure/select`.
+- Tests: `tests/test_structure.py`.
+
+Rules encoded (S1-S6, in structure.py's docstring):
+S1. Taxes follow the CHECKS — 45% of each month's gross (rule 1 distributed by
+    pay date rather than annually). Bonus cash is taxed too.
+S2. Living expenses are 10% of annual salary + other income spread EVENLY over
+    12 months — rule 2's annual total, but living costs do not stop in the
+    offseason, so they are not tied to pay timing.
+S3. Salary is the guaranteed season compensation (rule 9) and STOPS at
+    `contract_end` — no season is projected past the contract.
+S4. Coverage is reported TWO ways and never collapsed: `coverage` (strict, same
+    month) and `cushion_coverage` (against banked cash, since athletes bank
+    in-season money). Same-month coverage goes NEGATIVE in offseason months —
+    that is correct and load-bearing, not a bug to clamp at zero.
+S5. A maturity in a dry month is flagged, but the warning DISTINGUISHES a dry
+    month at the cumulative-cash peak (just after the last check — deliberate
+    good structuring) from one deep in the offseason after drawdown.
+S6. Interest accrues actual/365, same basis as `calc_amort`.
+
+`calculations.TAX_RATE` / `LIVING_RATE` were extracted as named constants so
+this module distributes the SAME rates the memo uses; the monthly projection
+must tie out to the memo's annual cash flow (locked by
+`test_projection_ties_out_to_the_memo_annual_cash_flow`). The `agent_pct` knob
+therefore defaults to 0.0 — setting it deliberately diverges from the memo.
+
+Frontend: `frontend/src/StructureBuilder.vue`. Six steps: upload -> confirm
+deal & borrower -> terms being tested -> pay cadence (editable, seeded from the
+league default) -> propose -> review & apply.
+
+A deal is UPLOADED ONCE. App.vue's `files` list is passed down as `:deal-files`
+and is the SAME list the Credit Memo tab extracts from, so documents dropped on
+the Structure tab are already waiting on the memo tab (the array is mutated in
+place — reassigning it would break the parent's reference). The memo still runs
+its OWN, fuller extraction over those files: the structuring prompt deliberately
+does not pull assets, liabilities, annual expenditures or uses of funds, so the
+two are not interchangeable and both tabs say so. `sendToMemo()` additionally
+carries the deal terms into the memo's Step 2 grid (borrower, team, league,
+salary, loan, rate, fee, funding, maturity), fired automatically after
+extraction and re-runnable from a button. It fills BLANKS ONLY — an
+underwriter's correction on the memo tab is never overwritten (the same
+precedent as the PA / Loan Docs / Binder readers).
+
+Selection is the gate: the tab proposes, the underwriter picks one, and only
+then does `POST /api/structure/select` return `repayment_schedule` rows +
+`amortization_type` for the Loan Documents tab. That lands in
+`LoanDocTerms.repayment_schedule`, which ALREADY outranks the computed Exhibit A
+schedule — no document code changes. To make the push possible, the Loan
+Documents tab's `pulledSchedule` / `scheduleSource` local refs were MOVED into
+the shared App-owned store as `repayment_schedule` / `schedule_source` (the same
+mechanism that already let the Closing Binder read that tab).
+
+Validated against a real NFL deal: the engine reproduces the season's 18 game
+checks across Sep–Jan, fails both amortizing structures, and recommends the
+bullet — matching the memo's own conclusion.

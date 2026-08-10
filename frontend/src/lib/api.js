@@ -360,7 +360,7 @@ export async function binderSort(files) {
 
 // Merge the sections into one indexed binder; returns the PDF blob so the
 // caller can both preview it and save it without generating twice. Each
-// section is a list of parts {file, from, to} — a file is base64-encoded
+// section is a list of parts {file, from, to} â€” a file is base64-encoded
 // only once however many sections it was split into.
 export async function binderPdf(info, docs, tabPages) {
   const encoded = new Map()
@@ -392,4 +392,71 @@ export async function binderPdf(info, docs, tabPages) {
     throw new Error(err.detail || `Binder generation failed (${res.status})`)
   }
   return res.blob()
+}
+// --- Deal structuring --------------------------------------------------------
+
+// The league pay-cadence defaults (NFL weekly game checks, NBA semi-monthly, …)
+// used to prefill the Structure tab's timing fields.
+export async function structureCadences() {
+  const res = await fetch(`${BASE}/structure/cadences`)
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function structureCadence(league) {
+  const res = await fetch(`${BASE}/structure/cadence/${encodeURIComponent(league)}`)
+  if (!res.ok) return null
+  return res.json()
+}
+
+// Project the borrower's month-by-month cash flow and score every candidate
+// structure against it.
+export async function structurePropose(inputs) {
+  const res = await fetch(`${BASE}/structure/propose`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inputs }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Could not build structures (${res.status})`)
+  }
+  return res.json()
+}
+
+// Convert the SELECTED candidate into Loan Documents Exhibit A rows. Selection
+// is the gate — nothing reaches the document chain until the underwriter picks.
+export async function structureSelect(inputs, candidateKey) {
+  const res = await fetch(`${BASE}/structure/select`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inputs, candidate_key: candidateKey }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Could not apply the structure (${res.status})`)
+  }
+  return res.json()
+}
+
+// Read deal documents for the structuring inputs — the TIMING fields (pay
+// cadence, season window, dated bonuses) the memo extraction does not carry.
+export async function structureExtract(files) {
+  const docs = await Promise.all(
+    Array.from(files).map(async (f) => ({
+      filename: f.name,
+      mime: f.type || 'application/octet-stream',
+      b64: await fileToBase64(f),
+    }))
+  )
+  const res = await fetch(`${BASE}/structure/extract`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(docs),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Could not read the documents (${res.status})`)
+  }
+  return res.json()
 }

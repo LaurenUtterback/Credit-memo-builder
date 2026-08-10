@@ -4,12 +4,17 @@ import { extractDocuments, memoHtml, downloadPdf, downloadWord, rollforwardPrevi
 import PaBuilder from './PaBuilder.vue'
 import LoanDocsBuilder from './LoanDocsBuilder.vue'
 import ClosingBinderBuilder from './ClosingBinderBuilder.vue'
+import StructureBuilder from './StructureBuilder.vue'
 
-// which builder is showing: 'memo' (credit memo), 'pa' (participation
-// agreement), 'loandocs' (closing document package) or 'binder' (closing binder)
-const view = ref('memo')
+// which builder is showing: 'structure' (deal structuring), 'memo' (credit
+// memo), 'pa' (participation agreement), 'loandocs' (closing document package)
+// or 'binder' (closing binder).
+// Structure comes FIRST and is the landing tab: the structure is decided from
+// the borrower's cash flow before the memo underwrites it, not after.
+const view = ref('structure')
 
 const TAB_TAGS = {
+  structure: 'Deal Structuring',
   memo: 'Credit Memorandum Builder',
   pa: 'Participation Agreement Builder',
   loandocs: 'Loan Documents Builder',
@@ -230,6 +235,7 @@ async function exportWord() {
         <div class="tag">{{ TAB_TAGS[view] }}</div>
       </div>
       <nav class="tabs">
+        <button :class="['tab', { active: view === 'structure' }]" @click="view = 'structure'">Structure</button>
         <button :class="['tab', { active: view === 'memo' }]" @click="view = 'memo'">Credit Memo</button>
         <button :class="['tab', { active: view === 'pa' }]" @click="view = 'pa'">Participation Agreement</button>
         <button :class="['tab', { active: view === 'loandocs' }]" @click="view = 'loandocs'">Loan Documents</button>
@@ -237,7 +243,12 @@ async function exportWord() {
       </nav>
     </header>
 
-    <PaBuilder v-if="view === 'pa'" :memo-terms="terms" :memo-extraction="extraction" />
+    <!-- `files` is the SHARED deal-document list: documents dropped on the
+         Structure tab are the same ones the Credit Memo extracts from, so a
+         deal is uploaded once. `terms` is reactive, so the Structure tab fills
+         the memo's deal terms directly (blanks only — typed values survive). -->
+    <StructureBuilder v-if="view === 'structure'" :memo-terms="terms" :memo-extraction="extraction" :loan-docs-terms="loanDocsTerms" :deal-files="files" />
+    <PaBuilder v-else-if="view === 'pa'" :memo-terms="terms" :memo-extraction="extraction" />
     <LoanDocsBuilder v-else-if="view === 'loandocs'" :memo-terms="terms" :memo-extraction="extraction" :terms-store="loanDocsTerms" />
     <ClosingBinderBuilder v-else-if="view === 'binder'" :loandocs-terms="loanDocsTerms" />
 
@@ -247,6 +258,11 @@ async function exportWord() {
       <h2><span class="step">1</span> Upload deal documents</h2>
       <input type="file" multiple @change="onFiles" />
       <p class="hint">Select several at once, or add more one at a time — they accumulate.</p>
+      <p v-if="files.length" class="hint">
+        Documents uploaded on the <strong>Structure</strong> tab appear here automatically —
+        this extraction is the fuller one (assets, liabilities, expenditures, uses of funds),
+        so run it even if the terms are already filled in.
+      </p>
       <ul v-if="files.length" class="filelist">
         <li v-for="(f, i) in files" :key="f.name + f.size">
           <span class="fname">{{ f.name }}</span>

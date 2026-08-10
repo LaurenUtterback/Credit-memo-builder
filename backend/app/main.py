@@ -42,6 +42,12 @@ from .loandocs_extraction import TeamContractExtraction, MemoDealExtraction
 from . import loandocs_extraction as loandocs_extraction_service
 from .binder_models import BinderRequest
 from . import binder as binder_service
+from .structure_models import (
+    LeagueCadence, SelectRequest, StructureRequest, StructureResult,
+)
+from . import structure as structure_service
+from .structure_extraction import StructureExtraction
+from . import structure_extraction as structure_extraction_service
 from .binder_extraction import BinderInfoExtraction, BinderSortResult
 from . import binder_extraction as binder_extraction_service
 
@@ -108,7 +114,7 @@ def _filenames(req: MemoRequest) -> list[str]:
 
 
 def _safe_name(name: str) -> str:
-    """ASCII-safe borrower name for Content-Disposition (e.g. José -> Jose)."""
+    """ASCII-safe borrower name for Content-Disposition (e.g. JosÃ© -> Jose)."""
     import unicodedata
     ascii_name = (
         unicodedata.normalize("NFKD", name or "Borrower")
@@ -425,3 +431,59 @@ def pa_pdf(req: PARequest) -> Response:
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{_pa_filename(req.terms, "pdf")}"'},
     )
+
+# --- Deal structuring ------------------------------------------------------
+
+@app.get("/api/structure/cadences", response_model=list[LeagueCadence])
+def structure_cadences() -> list[LeagueCadence]:
+    """The league pay-cadence defaults, for the tab's league picker."""
+    return list(structure_service.LEAGUE_CADENCES.values())
+
+
+@app.get("/api/structure/cadence/{league}", response_model=LeagueCadence)
+def structure_cadence(league: str) -> LeagueCadence:
+    """The default cadence for one league (unknown leagues get level monthly)."""
+    return structure_service.league_cadence(league)
+
+
+@app.post("/api/structure/extract", response_model=StructureExtraction)
+def structure_extract(docs: list[UploadedDoc]) -> StructureExtraction:
+    """Read deal documents for the structuring inputs (timing + certainty)."""
+    if not docs:
+        raise HTTPException(status_code=400, detail="No documents provided.")
+    try:
+        return structure_extraction_service.extract_documents(docs)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/structure/propose", response_model=StructureResult)
+def structure_propose(req: StructureRequest) -> StructureResult:
+    """Project the borrower's cash flow and score every candidate structure."""
+    if (req.inputs.loan_amount or 0) <= 0:
+        raise HTTPException(status_code=400, detail="A loan amount is required.")
+    return structure_service.propose_structures(req.inputs)
+
+
+@app.post("/api/structure/select")
+def structure_select(req: SelectRequest) -> dict:
+    """Convert the chosen candidate into Loan Documents Exhibit A rows.
+
+    Returns the rows plus the amortization_type and maturity date so the Loan
+    Documents tab can apply the whole structure, not just the schedule.
+    """
+    result = structure_service.propose_structures(req.inputs)
+    match = next((c for c in result.candidates if c.key == req.candidate_key), None)
+    if match is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No candidate structure '{req.candidate_key}' for these inputs.",
+        )
+    return {
+        "candidate_key": match.key,
+        "name": match.name,
+        "amortization_type": match.amortization_type,
+        "maturity_date": match.maturity_date.isoformat() if match.maturity_date else None,
+        "interest_reserve": match.interest_reserve,
+        "repayment_schedule": structure_service.to_schedule_rows(match),
+    }

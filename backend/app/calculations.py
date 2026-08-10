@@ -101,6 +101,15 @@ from typing import Optional
 from .models import DebtScheduleRow, Extraction, LineItem
 
 
+# --- Underwriting constants ------------------------------------------------
+# Rules 1 and 2. Named so structure.py can distribute the SAME rates across
+# months without re-deriving them (its projection must tie out to this module's
+# annual cash flow). Changing either changes the memo — see tests.
+
+TAX_RATE = 0.45      # rule 1: taxes are always 45% of gross income
+LIVING_RATE = 0.10   # rule 2: ordinary living expenses are always 10% of gross
+
+
 # --- Row classifiers (mirror the JS regexes exactly) ----------------------
 
 _FACILITY_RE = re.compile(r"proposed\s*facility", re.I)
@@ -644,8 +653,8 @@ def build_cash_flow(ed: Optional[Extraction], amort: Optional[dict],
     other_income = (ed.other_income if ed else 0) or 0
     income = salary_income + other_income
 
-    taxes = round(income * 0.45)         # rule 1
-    living = round(income * 0.10)        # rule 2
+    taxes = round(income * TAX_RATE)     # rule 1
+    living = round(income * LIVING_RATE)  # rule 2
     avail = income - taxes - living
 
     proposed_ds = loan or 0              # rule 3: principal only in cash flow
