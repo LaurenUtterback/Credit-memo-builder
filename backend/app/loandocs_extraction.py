@@ -12,6 +12,7 @@ Agreement's Contract definition.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Optional
 
@@ -19,7 +20,11 @@ from pydantic import BaseModel
 
 from .models import UploadedDoc
 # Reuse the exact, proven auth pieces from the credit-memo extraction.
-from .extraction import usage_token, _OAUTH_BETA_HEADER, _CLAUDE_CODE_SYSTEM
+from .doc_blocks import build_document_blocks
+from .extraction import (
+    usage_token, build_client, log_request_manifest, describe_api_error,
+    _OAUTH_BETA_HEADER, _CLAUDE_CODE_SYSTEM,
+)
 
 EXTRACTION_MODEL = os.environ.get("EXTRACTION_MODEL", "claude-sonnet-4-6")
 
@@ -113,21 +118,11 @@ def _ask_claude(docs: list[UploadedDoc], prompt: str, max_tokens: int) -> dict:
             "The 'anthropic' package is not installed. Run: pip install -e '.[dev]'"
         ) from exc
 
-    # Strictly usage, never an API key: drop any stray ANTHROPIC_API_KEY so the
-    # SDK can't fall back to it and send both credentials (which the API rejects).
-    os.environ.pop("ANTHROPIC_API_KEY", None)
-    client = anthropic.Anthropic(
-        auth_token=token,
-        default_headers={"anthropic-beta": _OAUTH_BETA_HEADER},
-    )
+    client = build_client(anthropic, token)
 
-    content: list[dict] = [
-        {
-            "type": "document",
-            "source": {"type": "base64", "media_type": d.mime, "data": d.b64},
-        }
-        for d in docs
-    ]
+    # Magic-byte sniffing, not the browser's MIME — see doc_blocks.
+    content: list[dict] = build_document_blocks(docs)
+    log_request_manifest("loan-documents extraction", docs, content)
     content.append({"type": "text", "text": prompt})
 
     try:
@@ -143,7 +138,8 @@ def _ask_claude(docs: list[UploadedDoc], prompt: str, max_tokens: int) -> dict:
             "update CLAUDE_CODE_OAUTH_TOKEN in .env, and restart the backend."
         ) from exc
     except anthropic.APIError as exc:
-        raise RuntimeError(f"Claude API error during extraction: {exc}") from exc
+        logging.getLogger(__name__).error("Loan-documents extraction failed: %s", exc)
+        raise RuntimeError(describe_api_error(exc, "extraction")) from exc
 
     raw = "".join(block.text for block in message.content if block.type == "text")
     clean = raw.strip()

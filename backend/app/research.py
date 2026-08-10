@@ -51,7 +51,11 @@ _SPORT_TO_SLUG = {
 }
 
 _WIKI_MAX_CHARS = 2500
-_SPOTRAC_MAX_CHARS = 6000
+# Generous because the text now feeds TWO consumers: the Section V narrative
+# and the guaranteed-salary cross-check. The year-by-year contract tables
+# (base salary + what portion is guaranteed) sit below the page's summary
+# block and were cut off at the old 6000-char cap.
+_SPOTRAC_MAX_CHARS = 14000
 
 
 def _league_slug(league: str | None, sport: str | None) -> str | None:

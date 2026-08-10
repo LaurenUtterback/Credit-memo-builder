@@ -39,6 +39,25 @@ def template_path(agreement_type: str | None) -> Path:
 def templates_present() -> dict:
     return {k: v.exists() for k, v in _TEMPLATES.items()}
 
+
+# "Send out for signature" prefills. The SRC signer's email and the
+# e-signature site's name/URL are deployment details that live ONLY in .env
+# (the repo is public) — never hard-code them.
+_ESIGN_ENV = {
+    "signer_name": "SRC_SIGNER_NAME",
+    "signer_email": "SRC_SIGNER_EMAIL",
+    "esign_name": "ESIGN_NAME",
+    "esign_url": "ESIGN_URL",
+}
+
+
+def esign_defaults() -> dict:
+    """SRC signer + e-signature site defaults from the environment (UI prefill)."""
+    out = {field: os.environ.get(env, "") for field, env in _ESIGN_ENV.items()}
+    # The agreement itself already prints the SRC signatory's name.
+    out["signer_name"] = out["signer_name"] or "James Plack"
+    return out
+
 _SOFFICE_CANDIDATES = [
     os.path.join(
         os.environ.get("LOCALAPPDATA", ""),

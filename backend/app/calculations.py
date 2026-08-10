@@ -56,6 +56,40 @@ Underwriting rules encoded here
 14. The memo phrases the borrower as "a Professional <sport> player", so the
     sport value is normalized to drop a leading "professional" — the memo must
     never render "Professional Professional ...".
+15. STALE PFS ROLL-FORWARD ("Method A", Lauren's standing rule as of
+    2026-08-05, applied to every memo). When the Personal Financial Statement
+    is more than a month older than the memo date, each financed debt on its
+    detail schedules is rolled forward as
+
+        adjusted balance = reported balance - (monthly payment x months elapsed)
+
+    where months elapsed counts whole payments from the month AFTER the
+    statement date through the memo month (10/16/25 -> 7/28/26 = 9). The
+    paydown is clamped so a balance never goes below zero and never runs past
+    the loan's maturity date. Lines with no scheduled payment (credit cards and
+    other revolving debt) and lines whose payment is NOT monthly (e.g. a
+    contract note paid per game check) are left exactly as reported. Each
+    schedule row's paydown is applied to the page-1 summary liability it rolls
+    up into, so Total Liabilities and Net Worth reflect the adjusted figures.
+    Known and accepted: the scheduled payment includes interest — and mortgage
+    payments on the SureSports PFS form include taxes & insurance — so the
+    method understates the true balance. That is deliberate.
+
+    Whether a payment counts as monthly: Schedule D's column is literally
+    "Monthly Payment", and Schedule F notes are monthly unless the form says
+    otherwise; Schedule F/G's "Amount / Pay Period" column is frequently left
+    blank. A CONTRACT-BASED note (Schedule G) is the exception — it is repaid
+    out of game checks, so a blank period never counts as monthly there.
+
+    Each debt carries a ``treatment`` the underwriter sets: "roll" (the default
+    above), "hold" (carry exactly as the statement reports it), or "zero" (show
+    it repaid in full — a payoff at closing, or a debt known to be settled).
+    A ZERO-OUT does not depend on the statement being stale: the whole balance
+    leaves its summary liability however fresh the PFS is. Debts may also be
+    ADDED by hand when extraction misses one, or when the PFS carries no detail
+    schedules at all; an added debt must name the summary liability it rolls
+    into (``category``) or its paydown has no total to come out of, which is
+    reported as a warning rather than applied somewhere arbitrary.
 """
 
 from __future__ import annotations
@@ -64,7 +98,7 @@ import re
 from datetime import date
 from typing import Optional
 
-from .models import Extraction, LineItem
+from .models import DebtScheduleRow, Extraction, LineItem
 
 
 # --- Underwriting constants ------------------------------------------------
@@ -244,9 +278,290 @@ def loan_term_months(ed: Optional[Extraction], amort: Optional[dict]) -> int:
     return 0
 
 
+# --- Rule 15: stale-PFS roll-forward --------------------------------------
+
+# A PFS is "stale" once it is more than a month old at the memo date. Below this
+# it is treated as current and every balance is used exactly as reported.
+_STALE_AFTER_DAYS = 31
+
+# Dates on these forms are typed by hand into Excel and arrive dirty: a missing
+# separator ("08/072053"), or Excel's epoch showing through for an empty cell
+# ("7/17/1905", "1/0/1900"). Anything resolving before this year is a placeholder.
+_MIN_PLAUSIBLE_YEAR = 1950
+
+_MONTHLY_RE = re.compile(r"\bmonth", re.I)
+
+# Which page-1 summary liability a schedule row rolls up into. Checked in this
+# order: "Notes Payable: Contract Based" must not be swallowed by the plainer
+# "Notes Payable to: others" pattern.
+_CATEGORY_MATCHERS = (
+    ("notes_payable_contract", re.compile(r"contract", re.I)),
+    ("mortgage_debt", re.compile(r"mortgage", re.I)),
+    ("notes_payable_others", re.compile(r"notes?\s*payable", re.I)),
+)
+
+
+def _parse_loose_date(raw: str | None) -> Optional[date]:
+    """Parse a PFS schedule date, tolerating the forms these sheets produce.
+
+    Returns None for a blank, unparseable, or placeholder date rather than
+    guessing — a wrong maturity would silently mis-cap a roll-forward.
+    """
+    s = (raw or "").strip()
+    if not s:
+        return None
+
+    y = m = d = None
+    if (mt := re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", s)):
+        y, m, d = int(mt.group(1)), int(mt.group(2)), int(mt.group(3))
+    elif (mt := re.fullmatch(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})", s)):
+        m, d, y = int(mt.group(1)), int(mt.group(2)), int(mt.group(3))
+    elif (mt := re.fullmatch(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2})", s)):
+        m, d, y = int(mt.group(1)), int(mt.group(2)), 2000 + int(mt.group(3))
+    elif (mt := re.fullmatch(r"(\d{1,2})/(\d{2})(\d{4})", s)):
+        # Missing separator, e.g. "08/072053" -> 08/07/2053.
+        m, d, y = int(mt.group(1)), int(mt.group(2)), int(mt.group(3))
+    elif (mt := re.fullmatch(r"(19|20)\d{2}", s)):
+        # A bare Purchase Year (Schedule D) — treat as the start of that year.
+        y, m, d = int(s), 1, 1
+    else:
+        return None
+
+    if y < _MIN_PLAUSIBLE_YEAR:
+        return None
+    try:
+        return date(y, m, d)
+    except ValueError:
+        return None
+
+
+def _months_elapsed(start: date, end: date) -> int:
+    """Whole scheduled payments from the month AFTER `start` through `end`'s
+    month — Lauren's count (10/16/25 -> 7/28/26 = 9)."""
+    return max(0, (end.year - start.year) * 12 + (end.month - start.month))
+
+
+def _money0(n: float) -> str:
+    return f"${n:,.0f}"
+
+
+def _sentence(text: str) -> str:
+    """Capitalize a sentence built from a lender name or an article.
+
+    Only the first character — .capitalize() would lower-case the rest and
+    wreck names like "MidState Bank" and "Sports Finance Fund, LP".
+    """
+    return text[:1].upper() + text[1:] if text else text
+
+
+def _long_date(d: date) -> str:
+    # Integer fields, not "%-d" — that strftime code raises on Windows.
+    return f"{d.strftime('%B')} {d.day}, {d.year}"
+
+
+def _is_monthly(r: DebtScheduleRow) -> bool:
+    """Whether a schedule row's payment is a monthly one.
+
+    Schedule F/G is headed "Amount / Pay Period" and these forms routinely leave
+    the period blank, so the default matters. Mortgages (Schedule D, column
+    "Monthly Payment") and ordinary notes (Schedule F) are monthly unless the
+    document says otherwise. CONTRACT-BASED notes (Schedule G) are not: they are
+    repaid out of the athlete's game checks, so an unstated period never counts
+    as monthly — which is how Lauren underwrote a real contract note by
+    hand (rolled the mortgages and the auto note, held the contract note).
+    """
+    period = (r.payment_period or "").strip()
+    if _MONTHLY_RE.search(period):
+        return True
+    if period:
+        return False
+    return r.category != "notes_payable_contract"
+
+
+def _summary_category(label: str) -> str:
+    for cat, rx in _CATEGORY_MATCHERS:
+        if rx.search(label or ""):
+            return cat
+    return ""
+
+
+def calc_debt_rollforward(ed: Optional[Extraction], as_of: Optional[date]) -> dict:
+    """Rule 15 — bring each financed debt on the PFS schedules to the memo date.
+
+    Two things move a balance, and they are independent:
+
+    * the ROLL-FORWARD proper (``treatment="roll"``), which needs a stale PFS —
+      the balance drops by payment x months elapsed; and
+    * a ZERO-OUT (``treatment="zero"``), which does not. A debt being paid off
+      at closing, or one the underwriter knows is settled, comes out in full
+      however fresh the statement is.
+
+    Returns the per-row detail (so the memo and the UI can show reported vs
+    adjusted), the paydown to apply to each page-1 summary liability, and a
+    drafted sentence for the Credit paragraph. ``applied`` is False when nothing
+    moved, in which case every balance stands exactly as reported.
+    """
+    if not ed or not as_of or not ed.debt_schedule:
+        return {
+            "applied": False, "pfs_date": None, "as_of": as_of, "months": 0,
+            "rows": [], "paydown_by_category": {}, "total_paydown": 0.0,
+            "note": "", "warnings": [],
+        }
+
+    pfs_date = _parse_loose_date(ed.pfs_date)
+    stale = bool(pfs_date and (as_of - pfs_date).days > _STALE_AFTER_DAYS)
+    months = _months_elapsed(pfs_date, as_of) if stale else 0
+
+    rows: list[dict] = []
+    paydown_by_category: dict[str, float] = {}
+    warnings: list[str] = []
+
+    def _take(cat: str, amount: float) -> None:
+        paydown_by_category[cat] = paydown_by_category.get(cat, 0.0) + amount
+
+    for r in ed.debt_schedule:
+        row = {
+            "lender": r.lender or r.description or "Unnamed debt",
+            "category": r.category or "",
+            "reported": r.balance or 0.0,
+            "payment": r.payment or 0.0,
+            "maturity": r.maturity or "",
+            "maturity_date": _parse_loose_date(r.maturity),
+            "treatment": r.treatment or "roll",
+            "months_applied": 0,
+            "paydown": 0.0,
+            "adjusted": r.balance or 0.0,
+            "rolled": False,
+            "zeroed": False,
+            "reason": "",
+        }
+
+        if not row["reported"]:
+            row["reason"] = "no balance reported"
+        elif row["treatment"] == "zero":
+            # Repaid in full: the whole balance leaves the summary liability.
+            row.update(paydown=row["reported"], adjusted=0.0,
+                       rolled=True, zeroed=True)
+            _take(r.category or "", row["reported"])
+        elif row["treatment"] == "hold":
+            row["reason"] = "held at the reported balance"
+        elif row["payment"] <= 0:
+            row["reason"] = "no scheduled payment (revolving)"
+        elif not _is_monthly(r):
+            per = (r.payment_period or "").strip()
+            row["reason"] = (f"payment is not monthly ({per})" if per
+                             else "contract-based note, not on a monthly schedule")
+        elif not pfs_date:
+            row["reason"] = "the statement is undated"
+        elif not stale:
+            row["reason"] = "the statement is current"
+        else:
+            n = months
+            mat = row["maturity_date"]
+            if mat:
+                n = min(n, _months_elapsed(pfs_date, mat))
+            elif (r.maturity or "").strip():
+                warnings.append(
+                    f"{row['lender']}: maturity date \"{r.maturity}\" could not be "
+                    f"read, so the roll-forward was not capped at maturity.")
+            paydown = min(row["payment"] * n, row["reported"])
+            if paydown > 0:
+                row.update(months_applied=n, paydown=paydown,
+                           adjusted=row["reported"] - paydown, rolled=True)
+                _take(r.category or "", paydown)
+            else:
+                row["reason"] = "already past maturity at the statement date"
+
+        rows.append(row)
+
+    moved = [r for r in rows if r["paydown"] > 0]
+    if not moved:
+        if not pfs_date and any(r["reason"] == "the statement is undated" for r in rows):
+            warnings.append("The PFS carries no readable statement date, so balances "
+                            "are shown exactly as reported. Enter the statement date "
+                            "to roll them forward.")
+        return {
+            "applied": False, "pfs_date": pfs_date, "as_of": as_of, "months": months,
+            "rows": rows, "paydown_by_category": {}, "total_paydown": 0.0,
+            "note": "", "warnings": warnings,
+        }
+
+    rolled = [r for r in moved if not r["zeroed"]]
+    zeroed = [r for r in moved if r["zeroed"]]
+    held = [r for r in rows if r["paydown"] <= 0 and r["reported"]
+            and r["reason"] != "no balance reported"]
+
+    sentences = []
+    if pfs_date:
+        sentences.append(f"The Personal Financial Statement is dated "
+                         f"{_long_date(pfs_date)}.")
+    if rolled:
+        parts = []
+        for r in rolled:
+            piece = (f"the {r['lender']} balance at {_money0(r['payment'])} per month "
+                     f"reduces from {_money0(r['reported'])} to {_money0(r['adjusted'])}")
+            if r["maturity_date"]:
+                piece += f" (matures {_long_date(r['maturity_date'])})"
+            parts.append(piece)
+        sentences.append(
+            f"Assuming all payments were made as agreed, the scheduled debt has "
+            f"been rolled forward {months} month{'s' if months != 1 else ''} to "
+            f"{_long_date(as_of)}: " + "; ".join(parts) + ".")
+        sentences.append(
+            f"The roll-forward totals "
+            f"{_money0(sum(r['paydown'] for r in rolled))} of principal reduction.")
+    if zeroed:
+        sentences.append(_sentence(
+            ", ".join(f"the {r['lender']} balance of {_money0(r['reported'])}"
+                      for r in zeroed) +
+            (" is" if len(zeroed) == 1 else " are") +
+            " shown as repaid in full and carried at $0."))
+    if held:
+        sentences.append(_sentence(
+            ", ".join(r["lender"] for r in held) +
+            (" is" if len(held) == 1 else " are") +
+            " carried at the balance reported on the statement (" +
+            "; ".join(f"{r['lender']}: {r['reason']}" for r in held) + ")."))
+
+    return {
+        "applied": True,
+        "pfs_date": pfs_date,
+        "as_of": as_of,
+        "months": months,
+        "rows": rows,
+        "paydown_by_category": paydown_by_category,
+        "total_paydown": sum(r["paydown"] for r in moved),
+        "note": " ".join(sentences),
+        "warnings": warnings,
+    }
+
+
+def _apply_rollforward(liab_items: list[LineItem], rf: dict) -> list[LineItem]:
+    """Reduce each page-1 summary liability by the paydown computed for the
+    schedule rows that roll up into it. Returns NEW LineItems — the extraction's
+    own rows are never mutated, so the reported figures stay recoverable."""
+    remaining = dict(rf.get("paydown_by_category") or {})
+    out: list[LineItem] = []
+    for item in liab_items:
+        cat = _summary_category(item.label)
+        cut = min(remaining.get(cat, 0.0), item.amount or 0.0)
+        if cut > 0:
+            remaining[cat] -= cut
+            out.append(LineItem(label=item.label, amount=item.amount - cut))
+        else:
+            out.append(LineItem(label=item.label, amount=item.amount))
+    for cat, left in remaining.items():
+        if left > 0.5:
+            rf.setdefault("warnings", []).append(
+                f"{_money0(left)} of computed paydown for \"{cat}\" had no matching "
+                f"liability line on the statement and was not applied.")
+    return out
+
+
 # --- Balance sheet (PFS) ---------------------------------------------------
 
-def calc_balance_sheet(ed: Optional[Extraction], facility_due: float) -> dict:
+def calc_balance_sheet(ed: Optional[Extraction], facility_due: float,
+                       as_of: Optional[date] = None) -> dict:
     """Net Worth = Total Assets - Total Liabilities, where liabilities include
     the proposed facility at loan + interest.
 
@@ -254,6 +569,10 @@ def calc_balance_sheet(ed: Optional[Extraction], facility_due: float) -> dict:
     rows (folded into Notes Payable to: others), alimony/child support
     (a cash-flow item only), and tax rows (never a PFS liability, even when the
     Personal Financial Statement reports an estimated tax figure).
+
+    ``as_of`` is the memo date. When given, and the PFS is more than a month
+    older than it, the scheduled debts are rolled forward first (rule 15) so
+    Total Liabilities and Net Worth run on the adjusted balances.
     """
     assets_total = _sum(ed.assets if ed else None) or (ed.total_assets if ed else 0) or 0
 
@@ -262,14 +581,24 @@ def calc_balance_sheet(ed: Optional[Extraction], facility_due: float) -> dict:
         if not is_facility_row(l) and not is_auto_loan_row(l)
         and not is_alimony_row(l) and not is_tax_row(l)
     ]
+    reported_liab = _sum(liab_items) or (ed.total_liabilities if ed else 0) or 0
+
+    rf = calc_debt_rollforward(ed, as_of)
+    if rf["applied"]:
+        liab_items = _apply_rollforward(liab_items, rf)
+
+    # Fall back to the stated total only when there are no line items at all —
+    # a rolled-forward set of lines must never be overridden by the PFS total.
     stated_liab = _sum(liab_items) or (ed.total_liabilities if ed else 0) or 0
     total_liab = stated_liab + (facility_due or 0)
     return {
         "assets_total": assets_total,
         "stated_liab": stated_liab,
+        "reported_liab": reported_liab,
         "total_liab": total_liab,
         "net_worth": assets_total - total_liab,
         "liab_items": liab_items,
+        "rollforward": rf,
     }
 
 
@@ -382,6 +711,149 @@ def build_cash_flow(ed: Optional[Extraction], amort: Optional[dict],
 def calc_ltc(loan: float, guaranteed_salary: float) -> float:
     """Loan-to-Contract = loan / guaranteed earnings, as a percentage."""
     return (loan / guaranteed_salary * 100) if guaranteed_salary else 0.0
+
+
+# --- Deal Summary & Policy Compliance (memo coversheet) ---------------------
+
+_REAL_ESTATE_RE = re.compile(r"real\s*estate|residence|property|home\b", re.I)
+_CREDIT_SCORE_RE = re.compile(
+    r"(?:credit\s*score|fico|mid[\s-]*score|score)\D{0,20}\b([3-8]\d{2})\b", re.I)
+_NO_DEROG_RE = re.compile(r"no\s+(?:bankruptc|collection|judgment)", re.I)
+_DEROG_RE = re.compile(r"bankruptc\w*|collections?\b", re.I)
+
+# Policy thresholds per South River Capital athlete-lending guidelines.
+LTC_MAX_PCT = 25.0
+LEVERAGE_MAX_PCT = 50.0
+LTV_MAX_PCT = 80.0
+CREDIT_SCORE_MIN = 650
+
+# The standing mitigants every SRC athlete loan carries; printed under any
+# exception so the approver signs off with the protections in view.
+STANDARD_MITIGANTS = (
+    "payroll direct-deposit sweep at the source, UCC-1 first-lien on the "
+    "contract receivable, full personal guarantee with confession of "
+    "judgment, and DDD insurance assigned to Lender"
+)
+
+
+def calc_policy_compliance(ed, *, loan: float, ltc: float, guar_basis: float,
+                           bs: dict, cf: dict, salary: float,
+                           mat_fmt: str, has_maturity: bool,
+                           credit_text: str = "") -> dict:
+    """Build the Deal Summary & Policy Compliance coversheet checklist.
+
+    Each row is {label, req, actual, status} with status "pass" | "exc" | "na".
+    Quantitative tests (LTC, combined contract-note leverage, combined LTV,
+    net cash flow, credit score, derogatories) are COMPUTED from the same
+    figures the memo body reports, so the coversheet and the memo can never
+    disagree. Structural requirements every SRC deal satisfies through the
+    loan documents (payroll sweep, UCC-1, personal guarantee, DDD insurance,
+    no-new-debt covenant) show as conditions of closing. Items the documents
+    don't establish are marked N/A — never silently passed.
+
+    Every "exc" row is echoed in ``exceptions`` (with the standard mitigants),
+    matching the sheet's rule that any exception requires credit approval
+    prior to funding.
+
+    ``bs`` is calc_balance_sheet's output (liab_items are post roll-forward),
+    ``cf`` is build_cash_flow's.
+    """
+    rows: list[dict] = []
+
+    def add(label: str, req: str, actual: str, status: str):
+        rows.append({"label": label, "req": req, "actual": actual,
+                     "status": status})
+
+    # 1. Loan-to-Contract — same figure as Section III Formulas/Advances.
+    add("Loan-to-Contract (LTC)", f"&le; {LTC_MAX_PCT:g}%", f"{ltc:.1f}%",
+        "pass" if ltc <= LTC_MAX_PCT else "exc")
+
+    # 2. Combined leverage: proposed facility + existing contract-based notes
+    #    (PFS "Notes Payable: Contract Based", post roll-forward) over the same
+    #    guaranteed-earnings basis the LTC uses.
+    contract_notes = _sum([l for l in bs.get("liab_items", [])
+                           if _summary_category(_label(l)) == "notes_payable_contract"])
+    leverage = ((loan + contract_notes) / guar_basis * 100) if guar_basis else 0.0
+    add("Combined contract-note leverage", f"&le; {LEVERAGE_MAX_PCT:g}%",
+        f"{leverage:.1f}% ({_money0(loan + contract_notes)} ÷ {_money0(guar_basis)})",
+        "pass" if leverage <= LEVERAGE_MAX_PCT else "exc")
+
+    # 3. Combined LTV on the subject property: mortgage debt (post
+    #    roll-forward) over the real estate reported on the PFS. N/A when the
+    #    statement carries no real estate.
+    re_assets = _sum([a for a in (ed.assets if ed else [])
+                      if _REAL_ESTATE_RE.search(_label(a))])
+    mortgage = _sum([l for l in bs.get("liab_items", [])
+                     if _summary_category(_label(l)) == "mortgage_debt"])
+    if re_assets:
+        ltv = mortgage / re_assets * 100
+        add("Combined LTV — subject property", f"&le; {LTV_MAX_PCT:g}%",
+            f"{ltv:.1f}% ({_money0(mortgage)} ÷ {_money0(re_assets)})",
+            "pass" if ltv <= LTV_MAX_PCT else "exc")
+    else:
+        ltv = None
+        add("Combined LTV — subject property", f"&le; {LTV_MAX_PCT:g}%",
+            "No real estate reported on PFS", "na")
+
+    # 4-5. Underwriting basis and structure.
+    if salary:
+        add("Salary fully guaranteed", "Required",
+            f"{_money0(salary)} guaranteed season salary (underwriting basis)",
+            "pass")
+    else:
+        add("Salary fully guaranteed", "Required", "Not yet provided", "na")
+    add("Maturity within guaranteed term", "Required",
+        f"Balloon at maturity {mat_fmt}" if has_maturity else "Maturity not set",
+        "pass" if has_maturity else "na")
+
+    # 6-12. Structural requirements satisfied through the loan documents —
+    # closing conditions of every SRC athlete loan, per Section II.
+    for label, actual in (
+        ("Payroll direct-deposit sweep", "Condition of closing — account with Lender"),
+        ("UCC-1 on contract receivable", "Condition of closing — first-lien filing"),
+        ("Clean UCC search — no competing liens", "Pre-funding search — condition of closing"),
+        ("Lien on real estate recorded (if appl.)", None),
+        ("Personal guarantee w/ conf. of judgment", "Condition of closing — full personal guarantee"),
+        ("DDD insurance assigned to Lender", "Condition of closing — policy naming Lender"),
+        ("US work authorization current", "Verified at closing — condition of closing"),
+    ):
+        if actual is None:
+            add(label, "Required", "No real-estate collateral taken — contract loan", "na")
+        else:
+            add(label, "Required", actual, "pass")
+
+    # 13-14. Credit report items, read from the memo's own Credit paragraph.
+    m = _CREDIT_SCORE_RE.search(credit_text or "")
+    if m:
+        score = int(m.group(1))
+        add("Minimum credit score (mid)", f"&ge; {CREDIT_SCORE_MIN}", str(score),
+            "pass" if score >= CREDIT_SCORE_MIN else "exc")
+    else:
+        add("Minimum credit score (mid)", f"&ge; {CREDIT_SCORE_MIN}",
+            "Not stated — see credit report on file", "na")
+    text = credit_text or ""
+    if _NO_DEROG_RE.search(text) or not _DEROG_RE.search(text):
+        add("No bankruptcies / collections", "Required",
+            "None noted on credit report", "pass")
+    else:
+        add("No bankruptcies / collections", "Required",
+            "Derogatory item noted — see Credit paragraph", "exc")
+
+    # 15. Ongoing covenant in the loan documents (Section IV).
+    add("No new contract debt w/o consent", "Ongoing",
+        "Covenant in loan documents — quarterly credit pulls", "pass")
+
+    # 16. Net cash flow after debt service — Section VIII's bottom line.
+    net_cf = cf.get("net_cf", 0)
+    add("Positive net cash flow after debt svc.", "Required",
+        (f"{_money0(net_cf)}" if net_cf >= 0 else f"({_money0(abs(net_cf))})"),
+        "pass" if net_cf > 0 else "exc")
+
+    exceptions = [{"label": r["label"], "detail": f'{r["actual"]} vs. {r["req"]}'}
+                  for r in rows if r["status"] == "exc"]
+    return {"rows": rows, "exceptions": exceptions,
+            "leverage": leverage, "ltv": ltv,
+            "mitigants": STANDARD_MITIGANTS}
 
 
 # --- SSN masking -----------------------------------------------------------

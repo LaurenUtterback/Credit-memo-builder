@@ -22,6 +22,7 @@ backend/                 FastAPI + the authoritative business logic
     calculations.py      ALL underwriting math and rules (the crown jewels)
     models.py            Pydantic models — the API contract
     extraction.py        Anthropic document extraction (holds the prompt)
+    doc_blocks.py        uploads -> Anthropic content blocks (all 3 uploaders)
     research.py          Wikipedia + Spotrac research on the athlete (Section V)
     memo.py              Renders the memo (Jinja2 HTML, PDF, Word)
     main.py              FastAPI routes
@@ -102,8 +103,100 @@ never silently.
     (e.g. from a captured narrative). The memo must never render
     "Professional Professional ...".
 
+17. STALE-PFS ROLL-FORWARD ("Method A" — Lauren's standing rule, 2026-08-05,
+    applied to every memo). When the PFS is more than a month older than the
+    memo date, each financed debt on its detail schedules is rolled forward:
+    `adjusted = reported − (monthly payment × months elapsed)`, where months
+    elapsed counts whole payments from the month AFTER the statement date
+    through the memo month (10/16/25 → 7/28/26 = 9). Clamped at $0 and never
+    past maturity. Left as reported: lines with no payment (credit cards and
+    other revolving debt), explicitly non-monthly payments, and CONTRACT-BASED
+    notes (Schedule G) whose pay period is blank — those are repaid from game
+    checks, not monthly. Each row's paydown is applied to the page-1 summary
+    liability it rolls up into (`category`), so Total Liabilities and Net Worth
+    run on adjusted figures. Rejected alternative: straight-line origination →
+    maturity (it moves a 30-year mortgage far less). Known and accepted:
+    payments include interest, and mortgage payments on the SureSports form
+    include taxes & insurance, so the method understates true balances.
+    `calc_debt_rollforward` / `_apply_rollforward` in calculations.py, fed by
+    the `pfs_date` + `debt_schedule` extraction fields (Schedules D/F/G). The
+    memo footnotes the PFS table and appends a drafted explanation to the
+    Credit paragraph (`_credit_text`). Each debt has a `treatment`: "roll"
+    (default), "hold" (carry as reported) or "zero" (repaid in full — the whole
+    balance leaves its summary liability, and unlike a roll-forward this does
+    NOT require a stale PFS). Step 2b of the UI shows reported vs adjusted per
+    debt, every field editable, previewed by `POST /api/memo/rollforward` so the
+    review table and the memo can never disagree. The step appears whenever
+    documents have been read — including when NO schedules were found — because
+    debts can be added by hand; an added debt must pick the summary liability it
+    rolls into (`category`) or its paydown is warned about, never silently
+    applied elsewhere. NOTE: the PFS text layer often
+    reaches Claude with columns scrambled — the prompt's ROW ALIGNMENT block
+    guards against pairing a payment with the wrong lender, and Step 2b exists
+    so the underwriter can catch what slips through.
+
+18. DEAL SUMMARY & POLICY COMPLIANCE COVERSHEET (added 2026-08-10, from
+    Lauren's paper template). The memo's page 1 is an auto-filled coversheet:
+    a deal-summary block (borrower, team/league, loan, term, collateral,
+    guaranteed remaining, repayment, LTC) and a 16-row policy checklist, each
+    row Pass / Exc. / N/A. `calc_policy_compliance` (calculations.py) computes
+    it from the SAME balance sheet / cash flow / credit paragraph the memo
+    body reports, so the coversheet can never disagree with the sections
+    behind it. Thresholds: LTC ≤ 25%, combined contract-note leverage ≤ 50%
+    ((loan + PFS contract-based notes, post roll-forward) ÷ the LTC's
+    guaranteed-earnings basis), combined LTV ≤ 80% (mortgage debt ÷ PFS real
+    estate; N/A with no real estate), credit score ≥ 650 (parsed from the
+    Credit paragraph; N/A when unstated — never silently passed), no
+    bankruptcies/collections (from the Credit paragraph), positive net cash
+    flow (Section VIII's bottom line). Structural requirements every deal
+    satisfies through the loan documents (payroll sweep, UCC-1, clean UCC
+    search, personal guarantee, DDD insurance, work authorization, no-new-debt
+    covenant) show as conditions of closing. Every "Exc." row is echoed in the
+    Exceptions & Mitigants block with the standard mitigants and "requires
+    credit approval prior to funding"; a credit-approval signature line closes
+    the page. Rendered by `_compliance_rows_html` / `_exceptions_html`
+    (memo.py) into the coversheet page of memo.html.j2 (screen footers are now
+    "of 7"). Locked by the `test_compliance_*` tests.
+
 The Alvarado reference deal: $12,267,600 assets, $10,373,361 total liabilities,
 $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.
+
+## Uploaded files -> content blocks (`doc_blocks.py`)
+
+All three uploaders (`extraction.py`, `pa_extraction.py`, `loandocs_extraction.py`)
+build their message content with `build_document_blocks()`. Do NOT hand a file's
+declared MIME to the API as a document block's `media_type` — that was a real
+bug (fixed 2026-08-05): the API accepts only `application/pdf` there, and
+Windows reports `application/octet-stream` or an empty MIME for files pulled off
+the Z: share, so a genuine PDF could fail the whole extraction with a raw 400
+(`...document.source.base64.media_type: Input should be 'application/pdf'`).
+
+The file's MAGIC BYTES decide, never the declared MIME: PDF -> document block;
+PNG/JPEG/GIF/WEBP -> image block; .docx/.xlsx -> converted to text here
+(python-docx / openpyxl, `data_only=True`, capped at 400 rows/sheet) and sent as
+a text block labelled with the filename; .txt/.csv/.md/.json -> inlined text.
+Anything else (including legacy .doc/.xls) raises a RuntimeError NAMING THE FILE,
+which the routes turn into a 502 whose detail the UI shows — the user must always
+learn which document to convert. Locked by `tests/test_doc_blocks.py`.
+
+## When an extraction fails
+
+All three uploaders share `build_client()` / `log_request_manifest()` /
+`describe_api_error()` from `extraction.py`:
+- **Retries**: the client is built with `max_retries=5`, above the SDK's default
+  of 2 — that default was not enough; uploads that failed with a 500 succeeded
+  on a manual retry moments later.
+- **Manifest**: every extraction INFO-logs what it is about to send (filenames,
+  block type, size) BEFORE the call, so a failure is diagnosable afterwards.
+  Chasing a 500 on 2026-08-06 there was no such record and the request could not
+  be reproduced. `main.py` calls `logging.basicConfig` for this — without it
+  uvicorn configures only its own loggers and the app's INFO records vanish.
+  Sizes are measured PER BLOCK, not per upload: a Word/Excel file is converted
+  to text first (a real case: an 8,568 KB .docx became 111 KB of text), so
+  upload size would point the next investigation at the wrong file.
+- **Errors**: a 5xx is reported as Anthropic-side, with the request ID and the
+  advice to retry or split the upload — never as a bare status code. Locked by
+  `tests/test_extraction_diagnostics.py`.
 
 ## The extraction prompt
 
@@ -111,6 +204,42 @@ $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.
 guaranteed-compensation-only salary (base + guaranteed annual bonuses),
 capturing every liability/expenditure line verbatim, auto-loan folding, and SSN
 redaction are load-bearing. Keep them consistent with the rules above.
+
+## Guaranteed-salary Spotrac cross-check (Step 2)
+
+The extracted guaranteed salary is settled from ALL uploaded documents (the
+prompt explicitly sweeps the contract's compensation paragraphs, separate
+guarantee addenda/riders/exhibits — which may guarantee only PART of the
+season salary — and term sheets; the executed contract governs on conflict)
+and is then cross-checked against the athlete's Spotrac page (Lauren,
+2026-08-06):
+
+- `research.py`'s existing Spotrac fetch is done ONCE per extraction and now
+  feeds two consumers: the Section V narrative and
+  `extraction._check_salary_against_spotrac`, a third Claude call that reads
+  the page for the season's CAP HIT (Lauren, 2026-08-06: base salary +
+  prorated signing bonus + other bonuses Spotrac counts for the season —
+  NEVER the base salary alone; with no cap hit on the page it composes base +
+  that season's bonuses). How much of the season Spotrac marks as GUARANTEED
+  is reported in the check's note, not netted out of the figure — so on
+  partially-guaranteed deals underwritten on the guaranteed basis, an amber
+  mismatch against the cap hit is EXPECTED and the note carries the
+  guaranteed portion.
+- The verdict ("match" | "mismatch" | "docs_only" | "spotrac_only" |
+  "unavailable") is computed by `extraction.build_salary_check`
+  (tolerance 0.1%, min $1), NEVER by the model. Carried on
+  `Extraction.salary_check` (models.SalaryCheck). Locked by
+  `tests/test_salary_check.py`.
+- UI-only, best-effort verification: it must never break /api/extract, and
+  the Spotrac figure NEVER reaches the memo's numbers — the documents stay
+  authoritative. The one exception is convenience prefill: when the documents
+  produce NO salary, the Step 2 field is filled from Spotrac, clearly labeled
+  in the status line and the field's verification line.
+- App.vue recomputes the verdict live against whatever is in the field
+  (`salaryVerify`, mirroring the same tolerance), shows ✓/⚠ + Spotrac's note
+  and a link under the Guaranteed salary input, and offers a
+  "Use Spotrac figure" button on mismatch — using it is the underwriter's
+  decision, the app only types the number.
 
 ## Section V — Project Sponsorship research
 
@@ -184,7 +313,8 @@ Backend pieces:
   even without Excel's cached values. Emails come from the lookup sheet.
 - `app/pa_agreement.py` — fills the template with **docxtpl** (pure Python) and
   converts the .docx to PDF with **LibreOffice headless** (`find_soffice()`).
-- Routes: `POST /api/pa/extract`, `/api/pa/breakdown`, `/api/pa/docx`, `/api/pa/pdf`.
+- Routes: `POST /api/pa/extract`, `/api/pa/breakdown`, `/api/pa/docx`, `/api/pa/pdf`,
+  `/api/pa/send`, `GET /api/pa/defaults`.
 - Frontend: `frontend/src/PaBuilder.vue` (uses the app's existing global CSS).
   Drop the breakdown .xlsx → pick a participant → the Key Terms (participation %,
   points %/$, interest, late-fee share, amount, email) auto-fill (mapped per
@@ -194,8 +324,44 @@ Backend pieces:
   **"Pull deal info from Credit Memo"** button copies borrower, loan amount,
   interest rate, origination fee, and the funding date (→ agreement_date) over —
   so a typical flow is: build the memo → pull → drop the breakdown → generate.
+- Step 4 "Send out for signature" (bottom of the PA tab): the signer rows
+  prefill — the SRC signer from `GET /api/pa/defaults`, the participant
+  signatory/email from the same `terms` fields the breakdown already fills.
+  With Demand Signatures configured (`esign_ready` from the defaults
+  endpoint) the primary button is a real one-click send: `POST /api/pa/send`
+  renders the PDF server-side and `app/esign_demand_signatures.py` uploads
+  and sends it. Without it, the step falls back to the manual flow:
+  final-PDF download, a copy-signer-list button (synchronous execCommand
+  first; the async clipboard API only as a timeout-guarded backup, because a
+  hung permission prompt would otherwise leave the button dead), and a
+  button opening the e-signature site where SRC sends documents manually.
+- `app/esign_demand_signatures.py`: Demand Signatures is South River's own
+  e-signing platform (https://demandsignatures.com); auth is one org-scoped
+  Bearer API key — no OAuth, no consent step. The send is four API calls:
+  `POST /documents/upload` (multipart PDF) → `POST .../recipients` (both
+  signers, same signing_order so both are emailed at once, matching SRC's
+  executed PAs) → `POST .../fields` → `POST .../send`. `find_sign_tabs()`
+  locates every "By: ______" line in the rendered PDF with pypdf and assigns
+  them alternately lender/participant (the templates always print the Lender
+  block above the Participant block — signature page AND Exhibit B
+  certificate, 4 lines total, locked by
+  `tests/test_esign_demand_signatures.py`). Field positions are percentages
+  of the page (0–100) from the top-left corner; `build_fields()` converts
+  from PDF points keeping the tuned box placement (x+30 past "By:", top =
+  page_height − y − 24). `PASendRequest.draft=True` uploads and places
+  everything but emails no one — the document stays a draft on
+  demandsignatures.com (safe testing). Config is env-only (public repo —
+  never hard-code): `DEMAND_SIGNATURES_API_KEY` (`ds_live_...` /
+  `ds_test_...`, scopes documents:read + documents:write), optional
+  `DEMAND_SIGNATURES_BASE_URL` (default `https://demandsignatures.com/api`).
+  The SRC signer identity and the manual signing site's name/URL stay in
+  `.env` too (`SRC_SIGNER_NAME`, `SRC_SIGNER_EMAIL`, `ESIGN_NAME`,
+  `ESIGN_URL`, read by `pa_agreement.esign_defaults()`).
 
 Templates — `app/templates/participation_agreement_{brookridge,standard}.docx`:
+- Carry the SRC logo (blue compass — decoded from `app/logo.txt`) left-aligned
+  in a FIRST-page-only Word header (matching the credit memo's masthead), added
+  by the build script; body layout and pages 2+ are untouched.
 - Hold ONLY `{{ placeholders }}`, never deal data. Built by
   `tools/build_pa_template.py` (config-driven; one config per form) from
   `tools/_pa_struct_{brookridge,standard}.json` — faithful paragraph-level

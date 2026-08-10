@@ -26,6 +26,8 @@ dependencies = [
     # Closing Binder: merges the executed PDFs behind the rendered cover/index
     # and writes the outline bookmarks.
     "pypdf>=4.0",
+    # Demand Signatures client (also pulled in transitively by anthropic).
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]

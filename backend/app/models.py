@@ -55,6 +55,60 @@ class RepaymentRow(BaseModel):
     total: float = 0.0
 
 
+class DebtScheduleRow(BaseModel):
+    """One financed debt from the PFS's detail schedules — Schedule D (personal
+    residence / investment real estate & mortgage debt), Schedule F (notes
+    payable to others) or Schedule G (contract-based notes payable).
+
+    These rows are what makes the stale-PFS roll-forward possible (rule 15 in
+    calculations.py): page 1 of the PFS only gives summary totals, while these
+    schedules carry the per-loan payment and maturity date.
+
+    ``category`` says which page-1 summary liability the row rolls up into, so a
+    computed paydown can be applied to the right total:
+    "mortgage_debt" | "notes_payable_others" | "notes_payable_contract".
+
+    ``payment_period`` is captured verbatim because Schedule F/G is headed
+    "Amount / Pay Period", which is NOT always monthly (an NFL contract note may
+    pay per game check). Only monthly payments are rolled forward.
+    """
+    lender: str = ""
+    category: str = ""
+    balance: float = 0.0              # Present Loan Balance / Outstanding Amount
+    payment: float = 0.0              # Monthly Payment / Amount per pay period
+    payment_period: str = ""          # "monthly", "semi-monthly", "per game check", ...
+    origination: str = ""             # Date of Origination / Purchase Year, as shown
+    maturity: str = ""                # Loan Maturity Date, as shown
+    rate_pct: float = 0.0             # interest rate if the schedule states one
+    description: str = ""             # Reason for Debt / property address
+    # How the memo treats this debt. Set from the UI, never by extraction:
+    #   "roll" (default) — reduce by payment x months elapsed (rule 15)
+    #   "hold"           — carry at the balance the statement reports
+    #   "zero"           — show as repaid in full; the whole balance comes out
+    #                      of the summary liability (a payoff at closing, or a
+    #                      debt the underwriter knows is settled)
+    treatment: str = "roll"
+
+
+class SalaryCheck(BaseModel):
+    """Spotrac cross-check of the guaranteed season salary (shown in Step 2).
+
+    A verification aid, never an underwriting source of record: the executed
+    contract and its addenda stay authoritative, and this figure never reaches
+    the memo. ``spotrac_salary`` is Spotrac's CAP HIT for the season being
+    underwritten (base salary + prorated signing bonus + other counted
+    bonuses; never the base salary alone), with the guarantee detail carried
+    in ``note``. ``verdict`` is computed
+    server-side (extraction.build_salary_check), never by the model:
+    "match" | "mismatch" | "docs_only" | "spotrac_only" | "unavailable".
+    """
+    spotrac_salary: float = 0.0
+    season: Optional[str] = None      # the season the figure belongs to, e.g. "2026"
+    spotrac_url: Optional[str] = None
+    verdict: str = "unavailable"
+    note: str = ""                    # one-line plain-text explanation for the underwriter
+
+
 class Extraction(BaseModel):
     """Structured data pulled from uploaded documents by Claude.
 
@@ -93,6 +147,13 @@ class Extraction(BaseModel):
     liabilities: list[LineItem] = Field(default_factory=list)
     total_liabilities: float = 0.0
     net_worth: float = 0.0            # captured but NOT used (recomputed)
+
+    # The date the PFS was prepared ("Completed on:"), ISO yyyy-mm-dd. Drives the
+    # stale-PFS roll-forward (rule 15) together with debt_schedule below.
+    pfs_date: Optional[str] = None
+    # Per-loan detail from PFS Schedules D / F / G. Empty when the documents
+    # carry no schedules, in which case balances are used exactly as reported.
+    debt_schedule: list[DebtScheduleRow] = Field(default_factory=list)
     facility_total_due: float = 0.0
     # Proposed-facility deal terms as stated in the documents (term sheet, etc.).
     # The frontend pre-fills the deal-terms form from these; the memo also falls
@@ -114,6 +175,10 @@ class Extraction(BaseModel):
     credit_notes: Optional[str] = None
     contract_notes: Optional[str] = None
     sponsorship_narrative: Optional[str] = None
+
+    # Spotrac cross-check of `salary`, attached after extraction (best-effort,
+    # UI-only — see SalaryCheck). None only on extractions from before the check.
+    salary_check: Optional[SalaryCheck] = None
 
 
 class DealTerms(BaseModel):

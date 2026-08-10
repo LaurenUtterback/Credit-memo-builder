@@ -5,6 +5,7 @@ Routes
 GET  /api/health           - liveness check
 POST /api/extract          - upload documents, get structured extraction back
 POST /api/memo/html        - render memo as HTML
+POST /api/memo/rollforward - preview the stale-PFS debt roll-forward
 POST /api/memo/pdf         - render memo as PDF (download)
 POST /api/memo/word        - render memo as Word .doc (download)
 POST /api/binder/pdf       - merge executed PDFs into an indexed closing binder
@@ -16,6 +17,7 @@ Run locally:  uvicorn app.main:app --reload --port 8000
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Optional
 
@@ -25,12 +27,14 @@ from fastapi.responses import Response
 from dotenv import load_dotenv
 
 from .models import Extraction, MemoRequest, UploadedDoc
+from . import calculations as calc
 from . import extraction as extraction_service
 from . import memo as memo_service
-from .pa_models import PAExtraction, PARequest, PATerms, BreakdownResult
+from .pa_models import PAExtraction, PARequest, PASendRequest, PATerms, BreakdownResult
 from . import pa_extraction as pa_extraction_service
 from . import pa_agreement as pa_agreement_service
 from . import pa_breakdown as pa_breakdown_service
+from . import esign_demand_signatures as esign_service
 from .loandocs_models import LoanDocsRequest, SettlementSheetResult
 from . import loandocs as loandocs_service
 from . import loandocs_sheet as loandocs_sheet_service
@@ -52,6 +56,14 @@ from . import binder_extraction as binder_extraction_service
 # is available however the server is launched. This does NOT rely on uvicorn's
 # --env-file flag, which silently does nothing unless python-dotenv is installed.
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+
+# Without this the app's own INFO records are dropped (uvicorn configures only
+# its own loggers), and the upload manifest logged before every extraction —
+# the only record of what a failed request actually contained — would vanish.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 app = FastAPI(
     title="Credit Memo Builder API",
@@ -120,6 +132,32 @@ def memo_html(req: MemoRequest) -> Response:
     return Response(content=html, media_type="text/html")
 
 
+@app.post("/api/memo/rollforward")
+def memo_rollforward(req: MemoRequest) -> dict:
+    """Preview the stale-PFS roll-forward (rule 15) for the Step 2 review table.
+
+    The math stays here rather than in the browser so the figures the user
+    reviews are exactly the ones the memo will render.
+    """
+    from datetime import date as _date
+
+    rf = calc.calc_debt_rollforward(req.extraction, _date.today())
+    return {
+        "applied": rf["applied"],
+        "pfs_date": rf["pfs_date"].isoformat() if rf["pfs_date"] else None,
+        "as_of": rf["as_of"].isoformat() if rf["as_of"] else None,
+        "months": rf["months"],
+        "total_paydown": rf["total_paydown"],
+        "note": rf["note"],
+        "warnings": rf["warnings"],
+        "rows": [
+            {**{k: v for k, v in r.items() if k != "maturity_date"},
+             "maturity_date": r["maturity_date"].isoformat() if r["maturity_date"] else None}
+            for r in rf["rows"]
+        ],
+    }
+
+
 @app.post("/api/memo/pdf")
 def memo_pdf(req: MemoRequest) -> Response:
     html = memo_service.render_html(req.terms, req.extraction, _filenames(req))
@@ -180,6 +218,50 @@ def pa_breakdown(docs: list[UploadedDoc]) -> BreakdownResult:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - surface parse failures cleanly
         raise HTTPException(status_code=422, detail=f"Could not read the breakdown: {exc}") from exc
+
+
+@app.get("/api/pa/defaults")
+def pa_defaults() -> dict:
+    """SRC signer + e-signature defaults for the send-for-signature step (from .env)."""
+    out = pa_agreement_service.esign_defaults()
+    esign = esign_service.status()
+    out["esign_provider"] = esign["provider"]
+    out["esign_ready"] = esign["ready"]
+    out["esign_mode"] = esign["mode"]
+    return out
+
+
+@app.post("/api/pa/send")
+def pa_send(req: PASendRequest) -> dict:
+    """Render the agreement and send it out for signature via Demand Signatures."""
+    lender_email = req.lender_signer_email.strip()
+    participant_email = (req.terms.participant_email or "").strip()
+    participant_name = (
+        (req.terms.participant_signatory_name or "").strip()
+        or (req.terms.participant_name or "").strip()
+    )
+    if "@" not in lender_email or "@" not in participant_email:
+        raise HTTPException(status_code=400, detail="Both signer emails are needed before sending.")
+    if not participant_name:
+        raise HTTPException(status_code=400, detail="The participant signer needs a name.")
+    try:
+        pdf = pa_agreement_service.render_pdf(req.terms, req.agreement_type)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    subject = f"Please sign: Participation Agreement — {req.terms.borrower_name or 'South River Capital'}"
+    try:
+        return esign_service.send_for_signature(
+            pdf,
+            _pa_filename(req.terms, "pdf"),
+            {"name": req.lender_signer_name.strip() or "James Plack", "email": lender_email},
+            {"name": participant_name, "email": participant_email},
+            subject,
+            draft=req.draft,
+        )
+    except esign_service.EsignNotConfigured as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except esign_service.EsignError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 def _pa_filename(terms: PATerms, ext: str) -> str:

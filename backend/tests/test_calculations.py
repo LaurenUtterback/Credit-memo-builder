@@ -14,6 +14,7 @@ import pytest
 
 from app.models import (
     Extraction, LineItem, DealTerms, UsesOfFunds, DisbursementItem,
+    DebtScheduleRow,
 )
 from app import calculations as calc
 from app import memo as memo_service
@@ -83,6 +84,25 @@ def test_alimony_is_not_a_pfs_liability():
     bs = calc.calc_balance_sheet(ed, 0)
     # alimony excluded -> only the mortgage counts
     assert bs["total_liab"] == 50_000
+
+
+def test_negative_net_worth_renders_as_negative():
+    # A facility underwritten against a small remaining contract can push Net
+    # Worth below zero. _money() takes abs(), so the PFS Net Worth row must use
+    # the signed formatter or a deficit would print as a positive figure.
+    ed = Extraction(
+        assets=[LineItem(label="Cash on Hand", amount=100_000)],
+        total_assets=100_000,
+        liabilities=[LineItem(label="Mortgage Debt", amount=2_000_000)],
+    )
+    terms = DealTerms(name="Deficit Borrower", loan=500_000, salary=100_000)
+    html = memo_service.render_html(terms, ed, [])
+    # with no rate/dates the facility falls back to the loan principal
+    bs = calc.calc_balance_sheet(ed, 500_000)
+    assert bs["net_worth"] == -2_400_000
+    assert "($2,400,000)" in html
+    # the bare positive form must not appear as the net-worth figure
+    assert ">$2,400,000<" not in html
 
 
 def test_auto_loan_balance_excluded_from_pfs():
@@ -452,6 +472,283 @@ def test_render_document_term_overrides_date_span():
     assert "<strong>6</strong>-month full balloon loan" in html
 
 
+# --- Rule 15: stale-PFS roll-forward (Method A) ---------------------------
+#
+# The reference set is a real SureSports PFS: statement dated 10/16/2025, read
+# for a memo dated 8/5/2026 = 10 elapsed monthly payments. It deliberately
+# includes the messy cases that form produces — a maturity date typed without a
+# separator, an Excel epoch placeholder for an empty origination cell, a
+# revolving line with no payment, and a contract note paid per game check.
+
+PFS_DATE = "2025-10-16"
+MEMO_DATE = date(2026, 8, 5)
+
+
+@pytest.fixture
+def stale_pfs() -> Extraction:
+    return Extraction(
+        pfs_date=PFS_DATE,
+        total_assets=5_168_151,
+        assets=[LineItem(label="Real Estate", amount=3_234_251),
+                LineItem(label="Contract (Remaining)", amount=1_933_900)],
+        liabilities=[
+            LineItem(label="Mortgage Debt", amount=2_753_066),
+            LineItem(label="Notes Payable to: others", amount=241_235),
+            LineItem(label="Notes Payable: Contract Based", amount=1_544_835),
+        ],
+        debt_schedule=[
+            DebtScheduleRow(
+                lender="Primary residence", category="mortgage_debt",
+                balance=618_815, payment=6_302, payment_period="monthly",
+                origination="2023", maturity="08/072053",   # missing separator
+            ),
+            DebtScheduleRow(
+                lender="second residence", category="mortgage_debt",
+                balance=2_134_251, payment=18_195, payment_period="monthly",
+                origination="2025", maturity="5/12/2055",
+            ),
+            DebtScheduleRow(
+                lender="Northgate Bank", category="notes_payable_others",
+                balance=100_000, payment=1_799, payment_period="monthly",
+                origination="7/17/1905",                    # Excel epoch = blank
+                maturity="5/15/2031", description="auto",
+            ),
+            DebtScheduleRow(
+                lender="Credit Cards", category="notes_payable_others",
+                balance=50_000, payment=0, description="credit card",
+            ),
+            DebtScheduleRow(
+                lender="MidState Bank", category="notes_payable_others",
+                balance=91_235, payment=1_250, payment_period="monthly",
+                origination="10/8/2025", maturity="10/8/2030",
+            ),
+            DebtScheduleRow(
+                # Schedule G leaves "Amount / Pay Period" blank, as this form
+                # does — a contract note is repaid out of game checks, so an
+                # unstated period must never be treated as monthly.
+                lender="Sports Finance Fund, LP",
+                category="notes_payable_contract",
+                balance=1_544_835, payment=77_454, payment_period="",
+                origination="3/22/2024", maturity="10/15/2027",
+            ),
+        ],
+    )
+
+
+def _row(rf, lender):
+    return next(r for r in rf["rows"] if r["lender"] == lender)
+
+
+def test_rollforward_counts_payments_from_month_after_statement(stale_pfs):
+    # 10/16/25 -> 8/5/26: November through August = 10 scheduled payments.
+    rf = calc.calc_debt_rollforward(stale_pfs, MEMO_DATE)
+    assert rf["applied"] is True
+    assert rf["months"] == 10
+    # Lauren's worked example on a real memo: 10/16/25 -> 7/28/26 = 9.
+    assert calc.calc_debt_rollforward(stale_pfs, date(2026, 7, 28))["months"] == 9
+
+
+def test_rollforward_deducts_payment_times_months(stale_pfs):
+    rf = calc.calc_debt_rollforward(stale_pfs, MEMO_DATE)
+    assert _row(rf, "Primary residence")["adjusted"] == 555_795   # 618,815 - 63,020
+    assert _row(rf, "second residence")["adjusted"] == 1_952_301      # 2,134,251 - 181,950
+    assert _row(rf, "Northgate Bank")["adjusted"] == 82_010                 # 100,000 - 17,990
+    assert _row(rf, "MidState Bank")["adjusted"] == 78_735             # 91,235 - 12,500
+    assert rf["total_paydown"] == 275_460
+
+
+def test_revolving_and_non_monthly_debt_is_carried_as_reported(stale_pfs):
+    rf = calc.calc_debt_rollforward(stale_pfs, MEMO_DATE)
+    cards = _row(rf, "Credit Cards")
+    assert cards["rolled"] is False and cards["adjusted"] == 50_000
+    assert "revolving" in cards["reason"]
+    # Repaid out of game checks, not monthly — never rolled forward.
+    fund_note = _row(rf, "Sports Finance Fund, LP")
+    assert fund_note["rolled"] is False and fund_note["adjusted"] == 1_544_835
+    assert "monthly" in fund_note["reason"]
+
+
+def test_unstated_pay_period_is_monthly_except_on_contract_notes(stale_pfs):
+    # These forms routinely leave Schedule F/G's "Amount / Pay Period" blank.
+    # An ordinary note still rolls forward; a contract-based note never does.
+    for r in stale_pfs.debt_schedule:
+        r.payment_period = ""
+    rf = calc.calc_debt_rollforward(stale_pfs, MEMO_DATE)
+    assert _row(rf, "Northgate Bank")["adjusted"] == 82_010
+    assert _row(rf, "Primary residence")["adjusted"] == 555_795
+    assert _row(rf, "Sports Finance Fund, LP")["rolled"] is False
+
+
+def test_explicit_non_monthly_period_beats_the_default():
+    ed = Extraction(
+        pfs_date=PFS_DATE,
+        liabilities=[LineItem(label="Notes Payable to: others", amount=50_000)],
+        debt_schedule=[DebtScheduleRow(
+            lender="Seasonal note", category="notes_payable_others",
+            balance=50_000, payment=5_000, payment_period="per game check")],
+    )
+    rf = calc.calc_debt_rollforward(ed, MEMO_DATE)
+    assert _row(rf, "Seasonal note")["rolled"] is False
+
+
+def test_row_held_by_the_user_is_carried_as_reported(stale_pfs):
+    stale_pfs.debt_schedule[0].treatment = "hold"
+    rf = calc.calc_debt_rollforward(stale_pfs, MEMO_DATE)
+    held = _row(rf, "Primary residence")
+    assert held["rolled"] is False and held["adjusted"] == 618_815
+    bs = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    by_label = {l.label: l.amount for l in bs["liab_items"]}
+    assert by_label["Mortgage Debt"] == 2_753_066 - 181_950  # only the 2nd rolled
+
+
+def test_zero_out_removes_the_whole_balance(stale_pfs):
+    # A debt being paid off at closing: the full balance leaves the summary.
+    stale_pfs.debt_schedule[2].treatment = "zero"          # Northgate Bank, $100,000
+    rf = calc.calc_debt_rollforward(stale_pfs, MEMO_DATE)
+    auto_note = _row(rf, "Northgate Bank")
+    assert auto_note["zeroed"] is True
+    assert auto_note["adjusted"] == 0 and auto_note["paydown"] == 100_000
+
+    bs = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    by_label = {l.label: l.amount for l in bs["liab_items"]}
+    # 241,235 less the MidState roll-forward (12,500) and all of Northgate Bank.
+    assert by_label["Notes Payable to: others"] == 241_235 - 12_500 - 100_000
+    # Sentence-cased, and a lender's own capitals survive it.
+    assert "The Northgate Bank balance of $100,000 is shown as repaid in full" in rf["note"]
+
+
+def test_lender_capitalisation_survives_sentence_casing(stale_pfs):
+    stale_pfs.debt_schedule[4].treatment = "zero"          # MidState Bank
+    rf = calc.calc_debt_rollforward(stale_pfs, MEMO_DATE)
+    assert "The MidState Bank balance" in rf["note"]
+
+
+def test_zero_out_applies_even_when_the_statement_is_current(stale_pfs):
+    # A payoff at closing has nothing to do with how old the statement is.
+    current = date(2025, 11, 5)                            # PFS is 3 weeks old
+    stale_pfs.debt_schedule[2].treatment = "zero"
+    rf = calc.calc_debt_rollforward(stale_pfs, current)
+    assert rf["applied"] is True and rf["months"] == 0
+    assert _row(rf, "Northgate Bank")["adjusted"] == 0
+    # Nothing else moved — the roll-forward proper still needs a stale PFS.
+    assert rf["total_paydown"] == 100_000
+    assert _row(rf, "MidState Bank")["reason"] == "the statement is current"
+    assert "rolled forward" not in rf["note"]
+
+
+def test_manually_added_debt_rolls_into_the_category_it_is_given(stale_pfs):
+    # Extraction missed a note; the underwriter adds it by hand.
+    stale_pfs.debt_schedule.append(DebtScheduleRow(
+        lender="Missed note", category="notes_payable_others",
+        balance=30_000, payment=500, payment_period="monthly",
+        maturity="1/1/2032"))
+    bs = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    by_label = {l.label: l.amount for l in bs["liab_items"]}
+    # The bucket already carries Northgate Bank + MidState; the added note joins them.
+    assert by_label["Notes Payable to: others"] == 210_745 - 5_000
+
+
+def test_debt_with_no_category_changes_no_total_and_warns(stale_pfs):
+    stale_pfs.debt_schedule.append(DebtScheduleRow(
+        lender="Uncategorised", category="", balance=30_000, payment=500,
+        payment_period="monthly"))
+    bs = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    by_label = {l.label: l.amount for l in bs["liab_items"]}
+    assert by_label["Notes Payable to: others"] == 210_745        # unchanged
+    assert any("had no matching liability line" in w
+               for w in bs["rollforward"]["warnings"])
+
+
+def test_rollforward_reduces_summary_liabilities_and_net_worth(stale_pfs):
+    bs = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    by_label = {l.label: l.amount for l in bs["liab_items"]}
+    assert by_label["Mortgage Debt"] == 2_508_096          # -244,970
+    assert by_label["Notes Payable to: others"] == 210_745  # -30,490
+    assert by_label["Notes Payable: Contract Based"] == 1_544_835  # untouched
+    assert bs["reported_liab"] == 4_539_136
+    assert bs["stated_liab"] == 4_263_676
+    assert bs["net_worth"] == 5_168_151 - 4_263_676
+
+
+def test_rollforward_never_mutates_the_extraction(stale_pfs):
+    calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    assert stale_pfs.liabilities[0].amount == 2_753_066
+
+
+def test_current_pfs_is_used_exactly_as_reported(stale_pfs):
+    # Three weeks old — not stale, so nothing moves.
+    rf = calc.calc_debt_rollforward(stale_pfs, date(2025, 11, 5))
+    assert rf["applied"] is False
+    bs = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=date(2025, 11, 5))
+    assert bs["stated_liab"] == 4_539_136
+
+
+def test_undated_pfs_is_not_rolled_forward(stale_pfs):
+    stale_pfs.pfs_date = None
+    rf = calc.calc_debt_rollforward(stale_pfs, MEMO_DATE)
+    assert rf["applied"] is False
+    assert rf["warnings"], "an undated PFS must be surfaced, not silently ignored"
+
+
+def test_no_debt_schedule_leaves_balances_as_reported(stale_pfs):
+    stale_pfs.debt_schedule = []
+    bs = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    assert bs["stated_liab"] == 4_539_136
+    assert bs["rollforward"]["applied"] is False
+
+
+def test_paydown_stops_at_maturity_and_never_goes_negative():
+    ed = Extraction(
+        pfs_date=PFS_DATE,
+        total_assets=100_000,
+        liabilities=[LineItem(label="Notes Payable to: others", amount=15_000)],
+        debt_schedule=[
+            # Matures 4 months after the statement: only 4 payments count,
+            # not the 10 that have elapsed.
+            DebtScheduleRow(lender="Short note", category="notes_payable_others",
+                            balance=10_000, payment=1_000, payment_period="monthly",
+                            maturity="2/28/2026"),
+            # Payments would exceed the balance — clamp at zero, never below.
+            DebtScheduleRow(lender="Nearly paid", category="notes_payable_others",
+                            balance=5_000, payment=1_000, payment_period="monthly",
+                            maturity="12/1/2030"),
+        ],
+    )
+    rf = calc.calc_debt_rollforward(ed, MEMO_DATE)
+    assert _row(rf, "Short note")["months_applied"] == 4
+    assert _row(rf, "Short note")["adjusted"] == 6_000
+    assert _row(rf, "Nearly paid")["adjusted"] == 0
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("08/072053", date(2053, 8, 7)),    # separator missing (real PFS typo)
+    ("5/12/2055", date(2055, 5, 12)),
+    ("2026-01-31", date(2026, 1, 31)),
+    ("10/8/30", date(2030, 10, 8)),
+    ("2023", date(2023, 1, 1)),         # Schedule D "Purchase Year"
+    ("7/17/1905", None),                # Excel epoch showing through a blank cell
+    ("1/0/1900", None),
+    ("", None),
+    ("NA", None),
+])
+def test_schedule_dates_are_parsed_or_rejected(raw, expected):
+    assert calc._parse_loose_date(raw) == expected
+
+
+def test_render_html_documents_the_rollforward(stale_pfs, monkeypatch):
+    monkeypatch.setattr(memo_service, "date", type("D", (date,), {
+        "today": staticmethod(lambda: MEMO_DATE)}))
+    terms = DealTerms(name="Test Borrower", loan=2_025_000, rate=13.5,
+                      salary=1_624_396)
+    html = memo_service.render_html(terms, stale_pfs, [])
+    # The adjusted mortgage total reaches the statement...
+    assert "$2,508,096" in html
+    # ...and the Credit paragraph explains it the way Lauren writes it.
+    assert "October 16, 2025" in html
+    assert "assuming all payments were made as agreed" in html.lower()
+    assert "$618,815 to $555,795" in html
+
+
 # --- Deal terms pulled from the documents ---------------------------------
 
 def test_render_falls_back_to_extracted_deal_terms():
@@ -513,6 +810,97 @@ def test_contract_remaining_row_absent_when_not_extracted():
     terms = DealTerms(name="Test Borrower", loan=4_435_000, salary=10_000_000)
     html = memo_service.render_html(terms, Extraction(salary=10_000_000), [])
     assert "Total Contract Remaining" not in html
+
+
+# --- Deal Summary & Policy Compliance coversheet ---------------------------
+
+def _compliance(ed, loan, salary, credit_text=""):
+    """Run the coversheet checklist the way render_html assembles its inputs."""
+    guar = (ed.contract_remaining if ed and ed.contract_remaining else 0) or salary
+    bs = calc.calc_balance_sheet(ed, loan)
+    cf = calc.build_cash_flow(ed, None, loan, salary)
+    return calc.calc_policy_compliance(
+        ed, loan=loan, ltc=calc.calc_ltc(loan, guar), guar_basis=guar,
+        bs=bs, cf=cf, salary=salary, mat_fmt="January 1, 2027",
+        has_maturity=True, credit_text=credit_text,
+    )
+
+
+def _comp_row(comp, label):
+    return next(r for r in comp["rows"] if r["label"] == label)
+
+
+def test_compliance_flags_ltc_and_leverage_exceptions(alvarado):
+    comp = _compliance(alvarado, ALVARADO_LOAN, ALVARADO_SALARY)
+    # LTC 27.8% > 25% and combined leverage (2,499,000 + 5,454,402 contract
+    # notes) / 9,000,000 = 88.4% > 50% are exceptions.
+    assert _comp_row(comp, "Loan-to-Contract (LTC)")["status"] == "exc"
+    lev = _comp_row(comp, "Combined contract-note leverage")
+    assert lev["status"] == "exc"
+    assert lev["actual"].startswith("88.4%")
+    # Combined LTV 1,912,110 / 3,228,000 = 59.2% passes.
+    ltv = _comp_row(comp, "Combined LTV — subject property")
+    assert ltv["status"] == "pass"
+    assert ltv["actual"].startswith("59.2%")
+    # Net cash flow is positive -> pass.
+    assert _comp_row(comp, "Positive net cash flow after debt svc.")["status"] == "pass"
+    # Every exception is echoed in the Exceptions & Mitigants block.
+    assert {e["label"] for e in comp["exceptions"]} == {
+        "Loan-to-Contract (LTC)", "Combined contract-note leverage"}
+
+
+def test_compliance_clean_deal_has_no_exceptions():
+    comp = _compliance(Extraction(salary=10_000_000), 1_000_000, 10_000_000)
+    assert comp["exceptions"] == []
+    assert _comp_row(comp, "Loan-to-Contract (LTC)")["status"] == "pass"
+    # No real estate on the PFS -> LTV is N/A, never a silent pass/fail.
+    assert _comp_row(comp, "Combined LTV — subject property")["status"] == "na"
+
+
+def test_compliance_reads_credit_score_from_credit_text(alvarado):
+    good = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
+                       credit_text="Mid credit score 720. No bankruptcies.")
+    assert _comp_row(good, "Minimum credit score (mid)")["status"] == "pass"
+    low = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
+                      credit_text="Credit score of 590 reported.")
+    assert _comp_row(low, "Minimum credit score (mid)")["status"] == "exc"
+    unstated = _compliance(alvarado, 1_000_000, ALVARADO_SALARY)
+    assert _comp_row(unstated, "Minimum credit score (mid)")["status"] == "na"
+
+
+def test_compliance_flags_derogatory_credit(alvarado):
+    clean = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
+                        credit_text="No bankruptcies, no judgments on file.")
+    assert _comp_row(clean, "No bankruptcies / collections")["status"] == "pass"
+    derog = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
+                        credit_text="Chapter 7 bankruptcy discharged 2024.")
+    assert _comp_row(derog, "No bankruptcies / collections")["status"] == "exc"
+
+
+def test_compliance_flags_negative_cash_flow():
+    # A big facility against a small salary drives net cash flow negative.
+    comp = _compliance(Extraction(salary=1_000_000), 2_925_000, 1_000_000)
+    assert _comp_row(comp, "Positive net cash flow after debt svc.")["status"] == "exc"
+    assert any(e["label"] == "Positive net cash flow after debt svc."
+               for e in comp["exceptions"])
+
+
+def test_render_html_includes_compliance_coversheet(alvarado):
+    terms = DealTerms(
+        name="José Alvarado", team="Pelicans", league="NBA", sport="basketball",
+        loan=ALVARADO_LOAN, rate=12, fee=2, salary=ALVARADO_SALARY,
+        fund=date(2026, 1, 1), mat=date(2027, 1, 1),
+    )
+    html = memo_service.render_html(terms, alvarado, ["PFS.pdf"])
+    assert "Deal Summary &amp; Policy Compliance" in html
+    assert "Loan-to-Contract (LTC)" in html
+    assert "Exceptions &amp; Mitigants" in html
+    assert "Credit Approval — Exceptions Acknowledged" in html
+    # Alvarado's LTC exception must appear in the exceptions block with the
+    # standard mitigants sentence.
+    assert "Mitigants:" in html
+    # The coversheet is page 1 and the memo body follows.
+    assert html.index("Deal Summary &amp; Policy Compliance") < html.index("Credit Memorandum</h1>")
 
 
 # --- Memo rendering smoke test --------------------------------------------

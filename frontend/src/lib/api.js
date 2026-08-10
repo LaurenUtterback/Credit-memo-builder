@@ -42,6 +42,18 @@ export async function memoHtml(terms, extraction) {
   return res.text()
 }
 
+// Preview the stale-PFS roll-forward (rule 15). The math runs on the backend so
+// the review table shows exactly what the memo will render.
+export async function rollforwardPreview(terms, extraction) {
+  const res = await fetch(`${BASE}/memo/rollforward`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ terms, extraction }),
+  })
+  if (!res.ok) throw new Error(`Roll-forward preview failed (${res.status})`)
+  return res.json()
+}
+
 async function downloadBlob(path, terms, extraction, filename) {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
@@ -162,6 +174,32 @@ export async function paDownloadPdf(terms, agreementType) {
 export async function paPreviewPdf(terms, agreementType) {
   const blob = await paBlob('/pa/pdf', terms, agreementType)
   return URL.createObjectURL(blob)
+}
+
+// SRC signer + e-signature site defaults for the send-for-signature step (.env).
+export async function paDefaults() {
+  const res = await fetch(`${BASE}/pa/defaults`)
+  if (!res.ok) return {}
+  return res.json()
+}
+
+// Send the agreement out for signature via Demand Signatures (backend renders the PDF).
+export async function paSend(terms, agreementType, lenderSigner) {
+  const res = await fetch(`${BASE}/pa/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      terms,
+      agreement_type: agreementType,
+      lender_signer_name: lenderSigner.name,
+      lender_signer_email: lenderSigner.email,
+    }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Send failed (${res.status})`)
+  }
+  return res.json()
 }
 
 // --- Loan Documents Builder --------------------------------------------------
