@@ -43,7 +43,8 @@ from . import loandocs_extraction as loandocs_extraction_service
 from .binder_models import BinderRequest
 from . import binder as binder_service
 from .structure_models import (
-    LeagueCadence, SelectRequest, StructureRequest, StructureResult,
+    LeagueCadence, ProposedTerms, SelectRequest, StructureRequest,
+    StructureResult, TermsRequest,
 )
 from . import structure as structure_service
 from .structure_extraction import StructureExtraction
@@ -472,6 +473,29 @@ def structure_propose(req: StructureRequest) -> StructureResult:
     if (req.inputs.loan_amount or 0) <= 0:
         raise HTTPException(status_code=400, detail="A loan amount is required.")
     return structure_service.propose_structures(req.inputs)
+
+
+@app.post("/api/structure/terms", response_model=ProposedTerms)
+def structure_terms(req: TermsRequest) -> ProposedTerms:
+    """Propose the loan amount, rate, points and term from the contract.
+
+    The amount is the lower of South River's Loan-to-Contract policy limit and
+    what the borrower's own earnings can actually retire; which one binds is
+    reported. Rate/points/term are house defaults, not a priced rate.
+    """
+    return structure_service.propose_terms(req.inputs, req.contract_remaining)
+
+
+@app.post("/api/structure/debt-service")
+def structure_debt_service(req: MemoRequest) -> dict:
+    """Annual non-facility debt service using the CREDIT MEMO's PFS handling.
+
+    Goes through calculations so the Structure tab counts the same rows the memo
+    counts, and so a stale statement is rolled forward the same way (rule 15) —
+    a debt repaid since the statement date stops being counted here too.
+    """
+    as_of = req.terms.fund if getattr(req.terms, "fund", None) else None
+    return structure_service.debt_service_from_memo(req.extraction, as_of)
 
 
 @app.post("/api/structure/summary/html")

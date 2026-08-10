@@ -448,3 +448,99 @@ def test_summary_pdf_route_requires_a_loan_amount():
     res = client.post("/api/structure/summary/pdf",
                       json={"inputs": nfl_inputs(loan_amount=0).model_dump(mode="json")})
     assert res.status_code == 400
+
+
+# --- Proposing the terms ---------------------------------------------------
+#
+# Lauren/Jim, 2026-08-10: the tool should propose the loan itself rather than be
+# handed one, and say whether the borrower can actually pay it off.
+
+def test_capacity_is_measured_against_banked_cash_not_the_thinnest_month():
+    """South River's facilities are balloons retired from a season's accumulated
+    earnings via the payroll sweep. Testing the tightest single month instead
+    caps a seven-figure NFL salary at a tiny fraction of itself, because
+    January carries one check."""
+    inputs = nfl_inputs(salary=1_650_000.0, other_debt_annual=350_000.0,
+                        funding_date=date(2026, 8, 1), target_term_months=6,
+                        contract_end=date(2027, 1, 4), loan_amount=1.0)
+    cap = st.max_supportable_loan(inputs)
+    assert cap > 300_000, f"capacity {cap:,.0f} is implausibly low for a $1.65m salary"
+
+
+def test_terms_are_held_at_the_ltc_policy_limit_when_policy_binds():
+    from app.calculations import LTC_MAX_PCT
+    inputs = nfl_inputs(salary=1_650_000.0, other_debt_annual=350_000.0,
+                        funding_date=date(2026, 8, 1), target_term_months=6,
+                        contract_end=date(2027, 1, 4), loan_amount=1.0)
+    t = st.propose_terms(inputs)
+    assert t.policy_cap == pytest.approx(1_650_000.0 * LTC_MAX_PCT / 100, abs=1000)
+    assert t.loan_amount <= t.policy_cap
+    if t.cash_capacity >= t.policy_cap:
+        assert t.binding_constraint == "policy"
+        assert any("policy limit" in w for w in t.warnings)
+
+
+def test_cash_flow_can_bind_before_policy_does():
+    """A big contract with thin near-term cash: policy would allow far more."""
+    inputs = nfl_inputs(league="NBA", salary=10_000_000.0, other_debt_annual=200_000.0,
+                        salary_guaranteed=True, funding_date=date(2026, 8, 1),
+                        target_term_months=6, loan_amount=1.0)
+    t = st.propose_terms(inputs, contract_remaining=39_500_000.0)
+    assert t.policy_cap > t.cash_capacity
+    assert t.binding_constraint == "cash flow"
+    assert t.loan_amount == t.cash_capacity
+
+
+def test_terms_answer_the_can_they_repay_question_in_words():
+    t = st.propose_terms(nfl_inputs(loan_amount=1.0, funding_date=date(2026, 8, 1)))
+    assert t.repayment_note
+    assert isinstance(t.can_repay, bool)
+
+
+def test_rate_and_points_are_house_defaults_and_say_so():
+    """Nothing here prices risk — the basis must be stated, not implied."""
+    t = st.propose_terms(nfl_inputs(loan_amount=1.0))
+    assert t.interest_rate == st.HOUSE_RATE_PCT
+    assert t.origination_fee_pct == st.HOUSE_POINTS_PCT
+    assert t.target_term_months == st.HOUSE_TERM_MONTHS
+    assert "not a priced rate" in t.rate_basis
+
+
+def test_event_driven_deal_with_no_salary_is_not_called_repayable_from_earnings():
+    t = st.propose_terms(nfl_inputs(salary=0.0, loan_amount=1.0,
+                                    expected_exit_date=date(2027, 3, 1)))
+    assert t.binding_constraint == "event"
+    assert "event" in t.repayment_note.lower()
+
+
+def test_terms_route():
+    res = client.post("/api/structure/terms", json={
+        "inputs": nfl_inputs(loan_amount=1.0).model_dump(mode="json"),
+        "contract_remaining": 39_500_000.0,
+    })
+    assert res.status_code == 200
+    assert res.json()["loan_amount"] > 0
+
+
+# --- PFS handling borrowed from the credit memo ----------------------------
+
+def test_debt_service_uses_the_memos_own_rows():
+    """Same rows the memo's cash flow counts — not a second opinion from the model."""
+    from app.models import Extraction
+    ed = Extraction(mortgage_payments=300_000, auto_payments=30_000,
+                    interest_principal_loans=20_000)
+    ds = st.debt_service_from_memo(ed, date(2026, 8, 1))
+    assert ds["annual"] == pytest.approx(350_000.0)
+
+
+def test_debt_service_handles_no_extraction():
+    assert st.debt_service_from_memo(None)["annual"] == 0.0
+
+
+def test_debt_service_route():
+    res = client.post("/api/structure/debt-service", json={
+        "terms": {"name": "X", "fund": "2026-08-01"},
+        "extraction": {"mortgage_payments": 120000},
+    })
+    assert res.status_code == 200
+    assert res.json()["annual"] == pytest.approx(120000.0)
