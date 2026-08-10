@@ -114,7 +114,7 @@ def _filenames(req: MemoRequest) -> list[str]:
 
 
 def _safe_name(name: str) -> str:
-    """ASCII-safe borrower name for Content-Disposition (e.g. JosÃ© -> Jose)."""
+    """ASCII-safe borrower name for Content-Disposition (e.g. JosÃƒÂ© -> Jose)."""
     import unicodedata
     ascii_name = (
         unicodedata.normalize("NFKD", name or "Borrower")
@@ -455,6 +455,14 @@ def structure_extract(docs: list[UploadedDoc]) -> StructureExtraction:
         return structure_extraction_service.extract_documents(docs)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        # Anything else (a shape we didn't anticipate back from the model) is
+        # reported with its cause rather than as a bare 500, which tells the
+        # user nothing and hides the reason in a server window.
+        raise HTTPException(
+            status_code=422,
+            detail=f"Could not understand the extraction result: {exc}",
+        ) from exc
 
 
 @app.post("/api/structure/propose", response_model=StructureResult)

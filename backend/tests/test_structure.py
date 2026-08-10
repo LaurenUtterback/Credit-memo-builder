@@ -299,3 +299,84 @@ def test_cadences_route_lists_the_leagues():
     res = client.get("/api/structure/cadences")
     assert res.status_code == 200
     assert {c["league"] for c in res.json()} >= {"NFL", "NBA", "MLB", "NHL"}
+
+
+# --- Extraction tolerance --------------------------------------------------
+#
+# The prompt tells Claude to use null for anything the documents do not state.
+# The model must therefore survive nulls in EVERY field — including the str and
+# list ones. Getting this wrong 500s the whole upload on any document that
+# happens to be missing a field (the bug reported 2026-08-10; the reference
+# memo hid it by having every field populated).
+
+from app.structure_extraction import ExtractedBonus, StructureExtraction
+
+
+def test_extraction_survives_null_in_every_field():
+    payload = {k: None for k in StructureExtraction.model_fields}
+    ed = StructureExtraction(**payload)          # must not raise
+    assert ed.borrower_name == ""                # str -> ""
+    assert ed.bonus_events == []                 # list -> []
+    assert ed.salary is None                     # Optional stays None
+
+
+def test_extraction_accepts_formatted_money_and_percents():
+    ed = StructureExtraction(salary="$1,650,000", loan_amount="3,000,000",
+                             interest_rate="15%", origination_fee_pct="4.0 %")
+    assert ed.salary == 1_650_000
+    assert ed.loan_amount == 3_000_000
+    assert ed.interest_rate == 15
+    assert ed.origination_fee_pct == 4.0
+
+
+def test_unparseable_number_degrades_to_none_rather_than_raising():
+    assert StructureExtraction(salary="not stated").salary is None
+
+
+def test_bonus_amounts_are_cleaned_too():
+    b = ExtractedBonus(label="Signing", date="2026-07-01", amount="$5,500,000")
+    assert b.amount == 5_500_000
+    assert ExtractedBonus(label=None).label == ""
+
+
+def test_pay_frequency_normalizes_onto_the_supported_cadences():
+    """LeagueCadence.pay_frequency is a Literal — an unmapped value would fail
+    the /propose call later, far from the cause."""
+    cases = {
+        "semi-monthly": "semimonthly", "Semi Monthly": "semimonthly",
+        "bi-weekly": "semimonthly", "twice a month": "semimonthly",
+        "weekly": "weekly", "per game": "weekly",
+        "Monthly": "monthly", "every month": "monthly",
+        "whenever he feels like it": None, "": None,
+    }
+    for raw, expected in cases.items():
+        assert StructureExtraction(pay_frequency=raw).pay_frequency == expected, raw
+    # and whatever survives must be a value the cadence model accepts
+    from app.structure_models import LeagueCadence
+    for v in ("weekly", "semimonthly", "monthly"):
+        assert LeagueCadence(pay_frequency=v).pay_frequency == v
+
+
+def test_guarantee_accepts_yes_no_strings():
+    assert StructureExtraction(salary_guaranteed="Yes").salary_guaranteed is True
+    assert StructureExtraction(salary_guaranteed="conditional").salary_guaranteed is False
+    assert StructureExtraction(salary_guaranteed=None).salary_guaranteed is None
+
+
+def test_extract_route_never_returns_a_bare_500(monkeypatch):
+    """An unexpected shape must come back as a readable 422, not a 500."""
+    from app import structure_extraction as se
+
+    def boom(_docs):
+        raise ValueError("unexpected field 'salary' was a dict")
+    monkeypatch.setattr(se, "extract_documents", boom)
+
+    res = client.post("/api/structure/extract", json=[
+        {"filename": "x.pdf", "mime": "application/pdf", "b64": "eA=="},
+    ])
+    assert res.status_code == 422
+    assert "unexpected field" in res.json()["detail"]
+
+
+def test_extract_route_still_400s_with_no_documents():
+    assert client.post("/api/structure/extract", json=[]).status_code == 400

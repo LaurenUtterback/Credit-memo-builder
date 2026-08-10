@@ -699,6 +699,16 @@ Backend pieces:
   default applies, never an invented one. `expected_exit_label` is capped at a
   short noun phrase and `notes` at ~5 items — the model returns an essay in both
   otherwise.
+  TOLERANCE (fixed 2026-08-10, was a 500 on upload): the prompt tells Claude to
+  use null for anything the documents do not state, so EVERY field can come back
+  null — including the str and list ones. `StructureExtraction` therefore extends
+  `_Tolerant`, which coerces null to the field's own default ("" / []), parses
+  formatted money and percents ("$1,650,000", "15%"), normalizes `pay_frequency`
+  onto the three cadences the engine supports (an unmapped value would otherwise
+  fail the later /propose call, far from the cause), and accepts yes/no strings
+  for `salary_guaranteed`. Do not re-declare these as plain `str`/`list`: one
+  unstated field then fails the whole upload. The route also catches non-
+  RuntimeError exceptions as a 422 naming the cause rather than a bare 500.
 - Routes: `GET /api/structure/cadences`, `GET /api/structure/cadence/{league}`,
   `POST /api/structure/extract`, `POST /api/structure/propose`,
   `POST /api/structure/select`.

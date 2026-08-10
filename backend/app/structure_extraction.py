@@ -12,22 +12,66 @@ pa_extraction.py / loandocs_extraction.py via the shared ``_ask_claude`` helper.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .models import UploadedDoc
 from .loandocs_extraction import _ask_claude
 
 
-class ExtractedBonus(BaseModel):
+_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _to_number(v):
+    """"$1,650,000" / "15%" / "N/A" -> 1650000.0 / 15.0 / None.
+
+    Claude is told to return plain numbers and mostly does, but it formats them
+    often enough that a hard failure here would 500 the whole extraction.
+    """
+    if v is None or isinstance(v, (int, float)):
+        return v
+    m = _NUMBER_RE.search(str(v).replace(",", ""))
+    return float(m.group()) if m else None
+
+
+class _Tolerant(BaseModel):
+    """Base model that survives what the extraction actually returns.
+
+    The prompt instructs Claude to use null for anything the documents do not
+    state — which includes the str and list fields. Declaring those as plain
+    `str` / `list` means one unstated field raises ValidationError and the
+    request 500s. This coerces null back to the field's own default, so a
+    partially-stated document degrades to blanks instead of failing.
+    """
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _null_to_default(cls, v, info):
+        if v is not None:
+            return v
+        field = cls.model_fields.get(info.field_name)
+        if field is None:
+            return v
+        default = field.get_default(call_default_factory=True)
+        # Optional fields keep their None; str/list fields get "" / [].
+        return default if default is not None else v
+
+
+class ExtractedBonus(_Tolerant):
     label: str = ""
     date: Optional[str] = None          # ISO yyyy-mm-dd
     amount: Optional[float] = None
     guaranteed: bool = True
 
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _clean_amount(cls, v):
+        return _to_number(v)
 
-class StructureExtraction(BaseModel):
+
+class StructureExtraction(_Tolerant):
     """What Claude pulls from the deal documents for the structuring run."""
 
     # Who
@@ -63,6 +107,47 @@ class StructureExtraction(BaseModel):
     expected_exit_label: str = ""
 
     notes: str = ""
+
+    @field_validator("salary", "other_income", "other_debt_annual", "loan_amount",
+                     "interest_rate", "origination_fee_pct", mode="before")
+    @classmethod
+    def _clean_numbers(cls, v):
+        return _to_number(v)
+
+    @field_validator("pay_frequency", mode="before")
+    @classmethod
+    def _normalize_frequency(cls, v):
+        """Map what Claude writes onto the three cadences the engine supports.
+
+        LeagueCadence.pay_frequency is a Literal, so an unrecognised value would
+        fail the /propose call later — much further from the cause. Anything we
+        can't place returns None, which falls back to the league default.
+        """
+        if not v:
+            return None
+        key = re.sub(r"[\s_-]", "", str(v)).lower()
+        if key in ("weekly", "everyweek", "pergame", "gamecheck", "gamechecks"):
+            return "weekly"
+        if key in ("semimonthly", "twicemonthly", "twiceamonth", "bimonthly",
+                   "biweekly", "everytwoweeks", "fortnightly", "24payments"):
+            # Biweekly (26/yr) is not exactly semi-monthly (24/yr), but it is far
+            # closer than weekly or monthly and keeps the projection sane.
+            return "semimonthly"
+        if key in ("monthly", "permonth", "everymonth", "12payments"):
+            return "monthly"
+        return None
+
+    @field_validator("salary_guaranteed", mode="before")
+    @classmethod
+    def _normalize_guaranteed(cls, v):
+        if isinstance(v, str):
+            key = v.strip().lower()
+            if key in ("yes", "true", "y", "fully guaranteed", "guaranteed"):
+                return True
+            if key in ("no", "false", "n", "not guaranteed", "conditional", "partial"):
+                return False
+            return None
+        return v
 
 
 PROMPT = """You are reading loan documents for a professional athlete lender.
