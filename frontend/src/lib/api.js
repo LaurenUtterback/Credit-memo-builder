@@ -477,3 +477,31 @@ export async function structureSummaryPdf(inputs) {
   const m = cd.match(/filename="([^"]+)"/)
   triggerDownload(await res.blob(), m ? m[1] : 'Proposed_Structure.pdf')
 }
+
+// Propose the loan amount, rate, points and term from the contract itself —
+// the lower of South River's LTC policy limit and what the borrower's earnings
+// can actually retire, with the binding constraint named.
+export async function structureProposeTerms(inputs, contractRemaining = null) {
+  const res = await fetch(`${BASE}/structure/terms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inputs, contract_remaining: contractRemaining }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Could not propose terms (${res.status})`)
+  }
+  return res.json()
+}
+
+// Annual non-facility debt service using the credit memo's own PFS handling,
+// including the roll-forward that ages a stale statement to the funding date.
+export async function structureDebtService(terms, extraction) {
+  const res = await fetch(`${BASE}/structure/debt-service`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ terms, extraction }),
+  })
+  if (!res.ok) return { annual: 0, note: '' }
+  return res.json()
+}

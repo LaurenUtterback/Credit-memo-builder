@@ -769,3 +769,47 @@ The engine reproduces the 18 NFL game checks (4+4+5+4+1 across Sep-Jan), prices
 the loan at 9.1x annual available cash, fails both amortizing structures, and
 recommends the bullet — matching the memo's own conclusion that repayment
 depends on the extension signing bonus.
+
+### Proposing the terms (Lauren/Jim, 2026-08-10)
+
+These deals have NO term sheet to upload, so the tool proposes the loan itself
+rather than being handed one — `structure.propose_terms()`, `POST
+/api/structure/terms`, and "✨ Propose terms from the contract" on Step 3.
+
+The AMOUNT is the lower of two independent ceilings, and the binding one is
+named rather than implied:
+  * POLICY    — `calculations.LTC_MAX_PCT` (25%) on guaranteed earnings, the
+                same basis rule 10 uses: total remaining contract value when
+                known, else the guaranteed season salary.
+  * CASH FLOW — `max_supportable_loan()`, a binary search for the largest loan
+                still repayable from the borrower's own earnings.
+
+Capacity is judged on BANKED cash (`min_cushion_coverage`), NOT the tightest
+single month. South River's facilities are balloons retired from a season's
+accumulated earnings through the payroll sweep, and an athlete banks in-season
+money precisely because the offseason has none. Judging on the thinnest month
+caps a $1.44m NFL salary near $19,000 — January carries one game check — which
+is arithmetically true and commercially meaningless. Locked by
+`test_capacity_is_measured_against_banked_cash_not_the_thinnest_month`.
+`bullet_reserve` is excluded from the capacity test: it is repaid by an event,
+not by earnings, so counting it would make capacity unbounded.
+
+RATE, POINTS and TERM are house defaults taken from real deals (Porter 15%/4%/
+6mo, Lyubushkin 15%/4%/6mo, Zibanejad 13.5%/3%/6mo), NOT a pricing model.
+Nothing derives a rate from risk, and `rate_basis` says so on screen. Do not
+add a computed rate without Jim's pricing rules — an authoritative-looking
+invented rate gets quoted.
+
+`propose_terms` also answers "can they pay it off?" in words (`repayment_note`),
+which was the actual request.
+
+### PFS handled the way the memo handles it
+
+`structure.debt_service_from_memo()` + `POST /api/structure/debt-service`.
+Annual non-facility debt service goes through `calculations`, not a second ask
+to the model, for two reasons: `build_cash_flow` already decides which rows
+count, and `calc_debt_rollforward` (rule 15) already ages a stale statement
+forward. A debt whose balance rolls to zero by the funding date has its
+payments dropped from debt service too — otherwise an old PFS inflates the
+borrower's obligations with debts they have since repaid. The roll-forward note
+is surfaced in the tab so the adjustment is visible, never silent.

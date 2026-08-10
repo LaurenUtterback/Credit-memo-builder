@@ -196,3 +196,38 @@ class SelectRequest(BaseModel):
 
     inputs: StructureInputs
     candidate_key: str = ""
+
+
+# --- Proposed terms --------------------------------------------------------
+
+class ProposedTerms(BaseModel):
+    """What the tool would lend, rather than what it was told to test.
+
+    Answers the two questions credit actually asks first: how much can this
+    contract carry, and will they be able to pay it off?
+    """
+
+    loan_amount: float = 0.0
+    interest_rate: float = 0.0
+    origination_fee_pct: float = 0.0
+    target_term_months: int = 0
+
+    # The two independent ceilings, so the binding one is visible rather than
+    # implied. policy_cap is South River's LTC limit; cash_capacity is what the
+    # projected cash flow can actually service.
+    policy_cap: float = 0.0
+    cash_capacity: float = 0.0
+    binding_constraint: str = ""        # "policy" | "cash flow" | "event"
+    guaranteed_earnings_basis: float = 0.0
+
+    # Plain-English verdict on repayment.
+    can_repay: bool = False
+    repayment_note: str = ""
+    rate_basis: str = ""                # where the rate/points defaults come from
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TermsRequest(BaseModel):
+    inputs: StructureInputs
+    # Total remaining contract value when known — the LTC basis (rule 10).
+    contract_remaining: Optional[float] = None

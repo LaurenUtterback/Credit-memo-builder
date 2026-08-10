@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { structureCadences, structureCadence, structureExtract, structurePropose, structureSelect, structureSummaryPdf } from './lib/api.js'
+import { structureCadences, structureCadence, structureExtract, structurePropose, structureSelect, structureSummaryPdf, structureProposeTerms, structureDebtService } from './lib/api.js'
 
 // Deal terms/extraction confirmed on the Credit Memo tab, plus the App-owned
 // Loan Documents store this tab pushes the SELECTED structure into.
@@ -56,6 +56,15 @@ const applied = ref('')
 
 const exporting = ref(false)
 const exportErr = ref('')
+
+// Proposed terms — how much the contract can carry, and whether it can be
+// repaid. Kept separate from `inputs` so the underwriter sees the proposal
+// before it overwrites anything they typed.
+const terms = ref(null)
+const proposing = ref(false)
+const termsErr = ref('')
+const contractRemaining = ref(null)
+const pfsNote = ref('')
 
 const FREQ_LABELS = {
   weekly: 'Weekly', semimonthly: 'Semi-monthly (1st & 15th)', monthly: 'Monthly',
@@ -120,11 +129,14 @@ async function pullFromMemo() {
       && !/conditional/i.test(ed.salary_guarantee_note)
   }
 
-  // Annual non-facility debt service, mirroring the memo's cash flow rows.
-  const debt = ['mortgage_payments', 'auto_payments', 'insurance', 'alimony',
-                'student_loans', 'interest_principal_loans', 'hoa_payments']
-    .reduce((sum, k) => sum + (Number(ed[k]) || 0), 0)
-  if (debt) inputs.other_debt_annual = debt
+  // Annual non-facility debt service, computed by the BACKEND using the credit
+  // memo's own PFS handling — same rows the memo counts, and a stale statement
+  // is rolled forward to the funding date, so a debt repaid since the statement
+  // stops being counted here too.
+  const ds = await structureDebtService({ ...t, fund: inputs.funding_date || t.fund || null }, ed)
+  if (ds && ds.annual) inputs.other_debt_annual = ds.annual
+  pfsNote.value = (ds && ds.note) || ''
+  if (ed.contract_remaining) contractRemaining.value = ed.contract_remaining
 
   // Term as presented, for the side-by-side.
   if (t.fund && t.mat) {
@@ -348,6 +360,26 @@ async function run() {
   running.value = false
 }
 
+// --- propose the terms -----------------------------------------------------
+async function proposeTerms() {
+  proposing.value = true
+  termsErr.value = ''
+  try {
+    terms.value = await structureProposeTerms(payload(), Number(contractRemaining.value) || null)
+  } catch (err) {
+    termsErr.value = err.message
+  }
+  proposing.value = false
+}
+
+function applyTerms() {
+  if (!terms.value) return
+  inputs.loan_amount = terms.value.loan_amount
+  inputs.interest_rate = terms.value.interest_rate
+  inputs.origination_fee_pct = terms.value.origination_fee_pct
+  inputs.target_term_months = terms.value.target_term_months
+}
+
 // --- export ----------------------------------------------------------------
 // The sendable artifact: every option considered, the recommendation, and the
 // cash flow behind it, in the credit memorandum's house design.
@@ -414,6 +446,7 @@ function applyToLoanDocs() {
     <button v-if="hasMemo" class="ghost" @click="pullFromMemo">↙ Or pull from the Credit Memo tab</button>
     <p v-if="readStatus.msg" :class="['status', readStatus.type]">{{ readStatus.msg }}</p>
     <p v-if="extractNotes" class="hint note">📄 {{ extractNotes }}</p>
+    <p v-if="pfsNote" class="hint note">🧾 {{ pfsNote }}</p>
     <p v-if="memoPush" class="status ok">{{ memoPush }}</p>
     <p v-if="pullMsg" class="status ok">{{ pullMsg }}</p>
     <p v-if="files.length" class="hint">
@@ -456,11 +489,38 @@ function applyToLoanDocs() {
   <!-- Step 2: terms being tested -->
   <section class="card">
     <h2><span class="step">3</span> Terms being tested</h2>
+    <div class="grid">
+      <label>Total remaining contract value
+        <input v-model.number="contractRemaining" type="number" placeholder="LTC basis — else season salary" /></label>
+    </div>
+    <button class="ghost" :disabled="proposing" @click="proposeTerms">
+      {{ proposing ? 'Working…' : '✨ Propose terms from the contract' }}
+    </button>
+    <p v-if="termsErr" class="status err">⚠ {{ termsErr }}</p>
+
+    <div v-if="terms" class="proposed">
+      <div class="pt-head">
+        <span class="pt-amt">{{ money(terms.loan_amount) }}</span>
+        <span class="pt-sub">at {{ terms.interest_rate }}% · {{ terms.origination_fee_pct }} pts ·
+          {{ terms.target_term_months }} months</span>
+        <button class="ghost sm" @click="applyTerms">Use these</button>
+      </div>
+      <div class="metrics">
+        <div><span class="k">Policy limit (LTC)</span><span class="v">{{ money(terms.policy_cap) }}</span></div>
+        <div><span class="k">Cash-flow capacity</span><span class="v">{{ money(terms.cash_capacity) }}</span></div>
+        <div><span class="k">Binding constraint</span><span class="v">{{ terms.binding_constraint }}</span></div>
+        <div><span class="k">Can they repay it?</span>
+          <span class="v" :class="{ neg: !terms.can_repay }">{{ terms.can_repay ? 'Yes' : 'No' }}</span></div>
+      </div>
+      <p class="rationale">{{ terms.repayment_note }}</p>
+      <p v-for="w in terms.warnings" :key="w" class="warn">⚠ {{ w }}</p>
+      <p class="hint">Rate and points: {{ terms.rate_basis }}</p>
+    </div>
+
     <p class="hint">
-      These are <strong>your</strong> terms — what you're proposing to lend, not something
-      read off the borrower's documents. They fill in automatically only if a term sheet
-      happens to be in the upload. The tool tests the structure against them; it does not
-      set the rate or the points.
+      The amount is the lower of South River's Loan-to-Contract policy limit and what the
+      borrower's own earnings can actually retire. Rate and points are house defaults —
+      nothing here prices risk, so edit them per deal.
     </p>
     <div class="grid">
       <label>Loan amount <input v-model.number="inputs.loan_amount" type="number" /></label>
@@ -680,6 +740,11 @@ function applyToLoanDocs() {
 .pair select { flex: 1; }
 .pair input { width: 62px; }
 .cad-label { font-size: 12px; color: #555; margin: 0 0 10px; font-style: italic; }
+.proposed { border: 1px solid var(--gold); background: #fefcf5; border-radius: 8px;
+  padding: 10px 12px; margin-top: 10px; }
+.pt-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.pt-amt { font-size: 20px; font-weight: 700; color: var(--navy); }
+.pt-sub { font-size: 12px; color: #555; flex: 1; }
 .note { background: #f4f6f8; border-left: 3px solid var(--navy); padding: 7px 10px;
   border-radius: 0 4px 4px 0; color: #444; line-height: 1.5; margin-top: 8px; }
 

@@ -718,3 +718,186 @@ def to_schedule_rows(cand: StructureCandidate) -> list[dict]:
         for p in cand.payments
     ]
 
+
+
+# --- Proposing the terms ---------------------------------------------------
+#
+# House defaults, taken from South River's own recent deals rather than
+# invented: Porter 15% / 4.0% / 6mo, Lyubushkin 15% / 4.0% / 6mo,
+# Zibanejad 13.5% / 3.0% / 6mo. They are STARTING POINTS the underwriter edits,
+# not a pricing model — nothing here derives a rate from risk.
+
+HOUSE_RATE_PCT = 15.0
+HOUSE_POINTS_PCT = 4.0
+HOUSE_TERM_MONTHS = 6
+_RATE_BASIS = ("South River's recent deals (15% / 4 pts / 6 months; 13.5% / 3 pts "
+               "on the largest). A starting point to edit, not a priced rate.")
+
+
+def _repayable_from_earnings(result: StructureResult, min_cov: float) -> bool:
+    """Can any structure be retired out of the borrower's OWN earnings?
+
+    Tested against BANKED cash (cushion coverage), not the tightest single
+    month. South River's facilities are balloons retired from a season's
+    accumulated earnings via the payroll sweep — an athlete banks in-season
+    money precisely because the offseason has none. Judging capacity on the
+    thinnest month instead would cap a $1.4m NFL salary at about $19,000,
+    because January carries only one game check.
+
+    bullet_reserve is excluded on purpose: it is repaid by an exit event rather
+    than by earnings, so counting it would make capacity unbounded.
+    """
+    return any(c.min_cushion_coverage >= min_cov
+               for c in result.candidates if c.key != "bullet_reserve")
+
+
+def max_supportable_loan(inputs: StructureInputs, ceiling: float = 0.0) -> float:
+    """The largest loan the borrower's projected CASH FLOW can service.
+
+    Binary search: a size is supportable when some income-serviced structure
+    still clears the minimum coverage. Returns 0.0 when even a token loan fails,
+    which is the honest answer for a deal that has to be repaid by an event.
+    """
+    hi = ceiling if ceiling > 0 else max((inputs.salary or 0.0) * 2, 1_000_000.0)
+
+    floor = max(hi * 0.001, 1000.0)
+    min_cov = inputs.min_coverage or 1.0
+    probe = inputs.model_copy(update={"loan_amount": floor})
+    if not _repayable_from_earnings(propose_structures(probe), min_cov):
+        return 0.0
+
+    lo = floor
+    if _repayable_from_earnings(propose_structures(
+            inputs.model_copy(update={"loan_amount": hi})), min_cov):
+        return float(round(hi, -3))
+
+    for _ in range(18):
+        mid = (lo + hi) / 2
+        if _repayable_from_earnings(propose_structures(
+                inputs.model_copy(update={"loan_amount": mid})), min_cov):
+            lo = mid
+        else:
+            hi = mid
+    return float(round(lo, -3))
+
+
+def propose_terms(inputs: StructureInputs,
+                  contract_remaining: Optional[float] = None):
+    """Propose the loan amount, rate, points and term.
+
+    The amount is the LOWER of two independent ceilings, and which one binds is
+    reported rather than implied:
+
+      * POLICY    — South River's Loan-to-Contract limit
+                    (calculations.LTC_MAX_PCT) on guaranteed earnings, the same
+                    basis rule 10 uses: total remaining contract value when
+                    known, else the guaranteed season salary.
+      * CASH FLOW — the largest loan an income-serviced structure can actually
+                    carry at the minimum coverage.
+
+    Rate, points and term are house defaults. This does not price risk, and the
+    returned ``rate_basis`` says so.
+    """
+    from .calculations import LTC_MAX_PCT
+    from .structure_models import ProposedTerms
+
+    basis = contract_remaining or inputs.salary or 0.0
+    policy_cap = float(round(basis * LTC_MAX_PCT / 100.0, -3))
+    capacity = max_supportable_loan(inputs, ceiling=max(policy_cap * 2, 1_000_000.0))
+
+    warnings: list[str] = []
+    event_driven = bool(inputs.expected_exit_date) or (inputs.salary or 0) <= 0
+
+    if capacity <= 0:
+        amount = policy_cap if event_driven else 0.0
+        binding = "event" if event_driven else "cash flow"
+    elif policy_cap and policy_cap <= capacity:
+        amount, binding = policy_cap, "policy"
+    else:
+        amount, binding = capacity, "cash flow"
+
+    can_repay = capacity > 0 and amount <= capacity
+    if can_repay:
+        note = (f"Yes — the projected cash flow services ${amount:,.0f} with the "
+                f"structure recommended below. Capacity runs to ${capacity:,.0f} "
+                f"before coverage breaks.")
+    elif event_driven:
+        note = ("Not from earnings. The contract's cash flow cannot retire a loan "
+                "of this size, so repayment depends entirely on the exit event — "
+                "structure it as a bullet and size it against the event, not the "
+                "salary.")
+        warnings.append("Repayment is event-dependent: nothing here is serviced by income.")
+    else:
+        note = ("No. No income-serviced structure clears the minimum coverage at "
+                "any meaningful size — the contract cannot carry this facility.")
+        warnings.append("The borrower's cash flow does not support a loan on these terms.")
+
+    if binding == "policy":
+        warnings.append(
+            f"Held at the {LTC_MAX_PCT:g}% Loan-to-Contract policy limit on "
+            f"${basis:,.0f} of guaranteed earnings; the cash flow alone would "
+            f"carry ${capacity:,.0f}.")
+    elif binding == "cash flow" and policy_cap and capacity < policy_cap:
+        warnings.append(
+            f"Cash flow binds before policy does: {LTC_MAX_PCT:g}% LTC would "
+            f"allow ${policy_cap:,.0f}.")
+
+    return ProposedTerms(
+        loan_amount=amount,
+        interest_rate=HOUSE_RATE_PCT,
+        origination_fee_pct=HOUSE_POINTS_PCT,
+        target_term_months=HOUSE_TERM_MONTHS,
+        policy_cap=policy_cap,
+        cash_capacity=capacity,
+        binding_constraint=binding,
+        guaranteed_earnings_basis=basis,
+        can_repay=can_repay,
+        repayment_note=note,
+        rate_basis=_RATE_BASIS,
+        warnings=warnings,
+    )
+
+
+# --- Debt service from the credit memo's PFS -------------------------------
+
+def debt_service_from_memo(ed, as_of: Optional[date] = None) -> dict:
+    """Annual non-facility debt service, using the MEMO's own PFS handling.
+
+    Two reasons to go through calculations rather than ask the model again: the
+    memo's cash flow already decides which rows count (mortgage, autos, alimony,
+    student loans, HOA, ...), and `calc_debt_rollforward` already ages a stale
+    statement forward (rule 15) — so a debt repaid since the statement date
+    stops being counted here too, instead of inflating debt service off a
+    document that may be a year old.
+    """
+    from . import calculations as calc
+
+    if ed is None:
+        return {"annual": 0.0, "note": "", "pfs_date": None, "dropped": []}
+
+    flow = calc.build_cash_flow(ed, None, 0.0, 0.0)
+    annual = sum(d["amt"] for d in flow["debt_items"])
+
+    rf = calc.calc_debt_rollforward(ed, as_of or date.today())
+    dropped: list[str] = []
+    if rf.get("applied"):
+        # A balance rolled (or zeroed) to nothing is repaid: its payments should
+        # not go on being counted against the borrower.
+        for row in rf.get("rows", []):
+            if (row.get("rolled") and (row.get("adjusted") or 0) <= 0
+                    and (row.get("payment") or 0) > 0):
+                annual = max(0.0, annual - row["payment"] * 12)
+                dropped.append(row.get("lender") or "a scheduled debt")
+
+    note = rf.get("note") or ""
+    if dropped:
+        note = (note + " " if note else "") + (
+            f"{len(dropped)} debt(s) are repaid as of the funding date and their "
+            f"payments are excluded from debt service: {', '.join(dropped)}.")
+
+    return {
+        "annual": round(annual, 2),
+        "note": note.strip(),
+        "pfs_date": rf.get("pfs_date"),
+        "dropped": dropped,
+    }
