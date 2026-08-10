@@ -812,6 +812,97 @@ def test_contract_remaining_row_absent_when_not_extracted():
     assert "Total Contract Remaining" not in html
 
 
+# --- Deal Summary & Policy Compliance coversheet ---------------------------
+
+def _compliance(ed, loan, salary, credit_text=""):
+    """Run the coversheet checklist the way render_html assembles its inputs."""
+    guar = (ed.contract_remaining if ed and ed.contract_remaining else 0) or salary
+    bs = calc.calc_balance_sheet(ed, loan)
+    cf = calc.build_cash_flow(ed, None, loan, salary)
+    return calc.calc_policy_compliance(
+        ed, loan=loan, ltc=calc.calc_ltc(loan, guar), guar_basis=guar,
+        bs=bs, cf=cf, salary=salary, mat_fmt="January 1, 2027",
+        has_maturity=True, credit_text=credit_text,
+    )
+
+
+def _comp_row(comp, label):
+    return next(r for r in comp["rows"] if r["label"] == label)
+
+
+def test_compliance_flags_ltc_and_leverage_exceptions(alvarado):
+    comp = _compliance(alvarado, ALVARADO_LOAN, ALVARADO_SALARY)
+    # LTC 27.8% > 25% and combined leverage (2,499,000 + 5,454,402 contract
+    # notes) / 9,000,000 = 88.4% > 50% are exceptions.
+    assert _comp_row(comp, "Loan-to-Contract (LTC)")["status"] == "exc"
+    lev = _comp_row(comp, "Combined contract-note leverage")
+    assert lev["status"] == "exc"
+    assert lev["actual"].startswith("88.4%")
+    # Combined LTV 1,912,110 / 3,228,000 = 59.2% passes.
+    ltv = _comp_row(comp, "Combined LTV — subject property")
+    assert ltv["status"] == "pass"
+    assert ltv["actual"].startswith("59.2%")
+    # Net cash flow is positive -> pass.
+    assert _comp_row(comp, "Positive net cash flow after debt svc.")["status"] == "pass"
+    # Every exception is echoed in the Exceptions & Mitigants block.
+    assert {e["label"] for e in comp["exceptions"]} == {
+        "Loan-to-Contract (LTC)", "Combined contract-note leverage"}
+
+
+def test_compliance_clean_deal_has_no_exceptions():
+    comp = _compliance(Extraction(salary=10_000_000), 1_000_000, 10_000_000)
+    assert comp["exceptions"] == []
+    assert _comp_row(comp, "Loan-to-Contract (LTC)")["status"] == "pass"
+    # No real estate on the PFS -> LTV is N/A, never a silent pass/fail.
+    assert _comp_row(comp, "Combined LTV — subject property")["status"] == "na"
+
+
+def test_compliance_reads_credit_score_from_credit_text(alvarado):
+    good = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
+                       credit_text="Mid credit score 720. No bankruptcies.")
+    assert _comp_row(good, "Minimum credit score (mid)")["status"] == "pass"
+    low = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
+                      credit_text="Credit score of 590 reported.")
+    assert _comp_row(low, "Minimum credit score (mid)")["status"] == "exc"
+    unstated = _compliance(alvarado, 1_000_000, ALVARADO_SALARY)
+    assert _comp_row(unstated, "Minimum credit score (mid)")["status"] == "na"
+
+
+def test_compliance_flags_derogatory_credit(alvarado):
+    clean = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
+                        credit_text="No bankruptcies, no judgments on file.")
+    assert _comp_row(clean, "No bankruptcies / collections")["status"] == "pass"
+    derog = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
+                        credit_text="Chapter 7 bankruptcy discharged 2024.")
+    assert _comp_row(derog, "No bankruptcies / collections")["status"] == "exc"
+
+
+def test_compliance_flags_negative_cash_flow():
+    # A big facility against a small salary drives net cash flow negative.
+    comp = _compliance(Extraction(salary=1_000_000), 2_925_000, 1_000_000)
+    assert _comp_row(comp, "Positive net cash flow after debt svc.")["status"] == "exc"
+    assert any(e["label"] == "Positive net cash flow after debt svc."
+               for e in comp["exceptions"])
+
+
+def test_render_html_includes_compliance_coversheet(alvarado):
+    terms = DealTerms(
+        name="José Alvarado", team="Pelicans", league="NBA", sport="basketball",
+        loan=ALVARADO_LOAN, rate=12, fee=2, salary=ALVARADO_SALARY,
+        fund=date(2026, 1, 1), mat=date(2027, 1, 1),
+    )
+    html = memo_service.render_html(terms, alvarado, ["PFS.pdf"])
+    assert "Deal Summary &amp; Policy Compliance" in html
+    assert "Loan-to-Contract (LTC)" in html
+    assert "Exceptions &amp; Mitigants" in html
+    assert "Credit Approval — Exceptions Acknowledged" in html
+    # Alvarado's LTC exception must appear in the exceptions block with the
+    # standard mitigants sentence.
+    assert "Mitigants:" in html
+    # The coversheet is page 1 and the memo body follows.
+    assert html.index("Deal Summary &amp; Policy Compliance") < html.index("Credit Memorandum</h1>")
+
+
 # --- Memo rendering smoke test --------------------------------------------
 
 def test_render_html_contains_key_figures(alvarado):

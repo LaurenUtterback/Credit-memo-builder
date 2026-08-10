@@ -279,6 +279,46 @@ def _doc_list_html(filenames: list[str]) -> str:
     )
 
 
+def _compliance_rows_html(rows: list[dict]) -> str:
+    """Coversheet checklist rows — Criteria | Requirement | Actual | Status.
+
+    Status renders all three boxes (Pass / Exc. / N/A) with the computed one
+    filled in, mirroring the paper template's check-one-of-three layout.
+    """
+    def badges(status: str) -> str:
+        return "".join(
+            f'<span class="st{" on" if status == key else ""}">{lab}</span>'
+            for key, lab in (("pass", "Pass"), ("exc", "Exc."), ("na", "N/A"))
+        )
+    return "".join(
+        f'<tr><td>{r["label"]}</td><td>{r["req"]}</td><td>{r["actual"]}</td>'
+        f'<td class="st-cell">{badges(r["status"])}</td></tr>'
+        for r in rows
+    )
+
+
+def _exceptions_html(comp: dict) -> str:
+    """The coversheet's Exceptions & Mitigants block.
+
+    Lists every computed exception with the standard mitigants; reads "None"
+    when all criteria are within guidelines.
+    """
+    if not comp["exceptions"]:
+        return ('<p style="margin:0">None &mdash; all policy criteria are '
+                'within guidelines.</p>')
+    n = len(comp["exceptions"])
+    items = "".join(
+        f'<li><strong>{e["label"]}</strong> &mdash; {e["detail"]}</li>'
+        for e in comp["exceptions"]
+    )
+    noun = "exception requires" if n == 1 else f"{n} exceptions require"
+    return (
+        f'<ul class="tight" style="margin:0 0 5pt">{items}</ul>'
+        f'<p style="margin:0"><strong>Mitigants:</strong> {comp["mitigants"]}. '
+        f'The {noun} credit approval prior to funding.</p>'
+    )
+
+
 _DUP_PROFESSIONAL_RE = re.compile(r"\bprofessional(?:\s+professional\b)+", re.I)
 
 
@@ -319,6 +359,17 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
     guar_basis = (ed.contract_remaining if ed and ed.contract_remaining else 0) or salary
     ltc = calc.calc_ltc(loan, guar_basis)
     uof = calc.calc_uses_of_funds(ed.uses_of_funds if ed else None, loan, fee)
+
+    # Deal Summary & Policy Compliance coversheet (page 1). Runs on the same
+    # balance sheet / cash flow / credit paragraph the memo body reports, so
+    # the checklist can never disagree with the sections behind it.
+    credit_text = _credit_text(ed, date.today())
+    bs = calc.calc_balance_sheet(ed, facility_due, date.today())
+    compliance = calc.calc_policy_compliance(
+        ed, loan=loan, ltc=ltc, guar_basis=guar_basis, bs=bs, cf=cf,
+        salary=salary, mat_fmt=_fmt_long(terms.mat),
+        has_maturity=bool(terms.mat), credit_text=credit_text,
+    )
 
     amort_for_tpl = amort or {"rows": [], "interest": 0, "balloon": 0, "months": 0}
 
@@ -380,7 +431,9 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
                               f"{terms.team or '[Team Name]'} of the {terms.league or '[League]'}."),
         # Rule 15: when the PFS was rolled forward, the drafted explanation is
         # appended here — Lauren documents the roll-forward in this paragraph.
-        "credit_text": _credit_text(ed, date.today()),
+        "credit_text": credit_text,
+        "compliance_html": _compliance_rows_html(compliance["rows"]),
+        "exceptions_html": _exceptions_html(compliance),
         # Section VII (Contract Analysis) only. Section V (Project Sponsorship)
         # deliberately does NOT show the contract notes — Lauren, 2026-07-06.
         "contract_notes": ed.contract_notes if ed else "",

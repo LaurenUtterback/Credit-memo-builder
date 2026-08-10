@@ -135,6 +135,29 @@ never silently.
     guards against pairing a payment with the wrong lender, and Step 2b exists
     so the underwriter can catch what slips through.
 
+18. DEAL SUMMARY & POLICY COMPLIANCE COVERSHEET (added 2026-08-10, from
+    Lauren's paper template). The memo's page 1 is an auto-filled coversheet:
+    a deal-summary block (borrower, team/league, loan, term, collateral,
+    guaranteed remaining, repayment, LTC) and a 16-row policy checklist, each
+    row Pass / Exc. / N/A. `calc_policy_compliance` (calculations.py) computes
+    it from the SAME balance sheet / cash flow / credit paragraph the memo
+    body reports, so the coversheet can never disagree with the sections
+    behind it. Thresholds: LTC ≤ 25%, combined contract-note leverage ≤ 50%
+    ((loan + PFS contract-based notes, post roll-forward) ÷ the LTC's
+    guaranteed-earnings basis), combined LTV ≤ 80% (mortgage debt ÷ PFS real
+    estate; N/A with no real estate), credit score ≥ 650 (parsed from the
+    Credit paragraph; N/A when unstated — never silently passed), no
+    bankruptcies/collections (from the Credit paragraph), positive net cash
+    flow (Section VIII's bottom line). Structural requirements every deal
+    satisfies through the loan documents (payroll sweep, UCC-1, clean UCC
+    search, personal guarantee, DDD insurance, work authorization, no-new-debt
+    covenant) show as conditions of closing. Every "Exc." row is echoed in the
+    Exceptions & Mitigants block with the standard mitigants and "requires
+    credit approval prior to funding"; a credit-approval signature line closes
+    the page. Rendered by `_compliance_rows_html` / `_exceptions_html`
+    (memo.py) into the coversheet page of memo.html.j2 (screen footers are now
+    "of 7"). Locked by the `test_compliance_*` tests.
+
 The Alvarado reference deal: $12,267,600 assets, $10,373,361 total liabilities,
 $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.
 
