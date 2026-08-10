@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 
 from .models import Extraction, UploadedDoc
 from .calculations import mask_ssn
@@ -48,9 +49,42 @@ _TOKEN_PLACEHOLDER = "paste-your-token-here"
 # an upload that failed was succeeding on a manual retry moments later.
 _MAX_RETRIES = 5
 
+# The SDK honors the response's `x-should-retry: false` header, and Anthropic
+# sets it on some 500s — so the whole _MAX_RETRIES budget can go unused (seen
+# 2026-08-10: ONE attempt, then failure, on an 11-document upload whose manual
+# retry succeeded). These app-level retries sit above the SDK and retry any
+# 5xx regardless of that header, spaced further apart than the SDK would —
+# "the same upload usually succeeds a few minutes later" is the observed
+# pattern, so short exponential backoff is the wrong shape here.
+_RETRY_DELAYS_S = (5, 15, 30)
+
 # Above this the request is big enough to be worth warning about: large uploads
 # are the pattern most associated with server-side 500s here.
 _LARGE_REQUEST_MB = 12
+
+
+def create_with_retry(client, where: str, **kwargs):
+    """client.messages.create with app-level retries on server errors (>= 500).
+
+    Retries by status code alone (duck-typed, no anthropic import needed) so a
+    500 carrying `x-should-retry: false` is retried anyway. Anything below 500
+    — auth, validation, request-too-large — raises immediately, exactly as
+    before. After the last delay the final error propagates for
+    describe_api_error to explain.
+    """
+    log = logging.getLogger(__name__)
+    for attempt, delay in enumerate(_RETRY_DELAYS_S + (None,)):
+        try:
+            return client.messages.create(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - filtered by status code below
+            status = getattr(exc, "status_code", None)
+            if not status or status < 500 or delay is None:
+                raise
+            log.warning(
+                "%s: attempt %d got a server error (%s, request %s) — "
+                "retrying in %ds.", where, attempt + 1, status,
+                getattr(exc, "request_id", None) or "unknown", delay)
+            time.sleep(delay)
 
 
 def usage_token() -> str | None:
@@ -123,11 +157,13 @@ def describe_api_error(exc, where: str) -> str:
     request_id = getattr(exc, "request_id", None) or "unknown"
     if status and status >= 500:
         return (
-            f"Claude's API returned a server error ({status}) during {where}, after "
-            f"{_MAX_RETRIES} retries. This is a fault on Anthropic's side, not with "
-            f"your documents — the same upload usually succeeds a few minutes later. "
-            f"If it keeps failing, extract fewer documents at once (large requests "
-            f"fail this way most often). Request ID {request_id}."
+            f"Claude's API returned a server error ({status}) during {where}, and "
+            f"kept failing through {len(_RETRY_DELAYS_S)} automatic retries spread "
+            f"over ~{sum(_RETRY_DELAYS_S)} seconds. This is a fault on Anthropic's "
+            f"side, not with your documents — the same upload usually succeeds a "
+            f"few minutes later, so wait a moment and try again. If it keeps "
+            f"failing, extract fewer documents at once (large requests fail this "
+            f"way most often). Request ID {request_id}."
         )
     if status == 413 or "too large" in str(exc).lower():
         return (f"The upload is too large for one request during {where}. Extract "
@@ -350,7 +386,8 @@ def extract_documents(docs: list[UploadedDoc]) -> Extraction:
     content.append({"type": "text", "text": PROMPT})
 
     try:
-        message = client.messages.create(
+        message = create_with_retry(
+            client, "extraction",
             model=EXTRACTION_MODEL,
             max_tokens=3000,
             system=_CLAUDE_CODE_SYSTEM,

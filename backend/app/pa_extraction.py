@@ -18,7 +18,8 @@ from .pa_models import PAExtraction
 # Reuse the exact, proven auth pieces from the credit-memo extraction.
 from .doc_blocks import build_document_blocks
 from .extraction import (
-    usage_token, build_client, log_request_manifest, describe_api_error,
+    usage_token, build_client, create_with_retry, log_request_manifest,
+    describe_api_error,
     _OAUTH_BETA_HEADER, _CLAUDE_CODE_SYSTEM,
 )
 
@@ -76,7 +77,8 @@ def extract_documents(docs: list[UploadedDoc]) -> PAExtraction:
     content.append({"type": "text", "text": PROMPT})
 
     try:
-        message = client.messages.create(
+        message = create_with_retry(
+            client, "participation-agreement extraction",
             model=EXTRACTION_MODEL,
             max_tokens=2000,
             system=_CLAUDE_CODE_SYSTEM,

@@ -22,7 +22,8 @@ from .models import UploadedDoc
 # Reuse the exact, proven auth pieces from the credit-memo extraction.
 from .doc_blocks import build_document_blocks
 from .extraction import (
-    usage_token, build_client, log_request_manifest, describe_api_error,
+    usage_token, build_client, create_with_retry, log_request_manifest,
+    describe_api_error,
     _OAUTH_BETA_HEADER, _CLAUDE_CODE_SYSTEM,
 )
 
@@ -126,7 +127,8 @@ def _ask_claude(docs: list[UploadedDoc], prompt: str, max_tokens: int) -> dict:
     content.append({"type": "text", "text": prompt})
 
     try:
-        message = client.messages.create(
+        message = create_with_retry(
+            client, "loan-documents extraction",
             model=EXTRACTION_MODEL,
             max_tokens=max_tokens,
             system=_CLAUDE_CODE_SYSTEM,

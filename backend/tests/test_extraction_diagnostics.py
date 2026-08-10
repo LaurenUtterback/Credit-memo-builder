@@ -83,6 +83,57 @@ def test_non_server_errors_keep_the_original_detail():
     assert "req_z" in msg
 
 
+class _FlakyClient:
+    """Fails with the given error a set number of times, then succeeds."""
+    def __init__(self, error, failures):
+        self.error, self.failures, self.attempts = error, failures, 0
+        client = self
+
+        class _Messages:
+            @staticmethod
+            def create(**kwargs):
+                client.attempts += 1
+                if client.attempts <= client.failures:
+                    raise client.error
+                return "the-message"
+        self.messages = _Messages()
+
+
+def test_create_with_retry_retries_a_500_the_sdk_gave_up_on(monkeypatch):
+    # 2026-08-10 incident: the API answered a valid 11-document upload with a
+    # 500 AND x-should-retry: false, so the SDK made ONE attempt and quit —
+    # while a manual retry succeeded. The app-level wrapper must retry any
+    # 5xx regardless, with the configured spacing.
+    sleeps = []
+    monkeypatch.setattr(extraction.time, "sleep", sleeps.append)
+    client = _FlakyClient(_FakeError("api_error", status_code=500,
+                                     request_id="req_1"), failures=2)
+    assert extraction.create_with_retry(client, "extraction") == "the-message"
+    assert client.attempts == 3
+    assert sleeps == list(extraction._RETRY_DELAYS_S[:2])
+
+
+def test_create_with_retry_raises_after_the_delays_are_exhausted(monkeypatch):
+    monkeypatch.setattr(extraction.time, "sleep", lambda s: None)
+    client = _FlakyClient(_FakeError("api_error", status_code=500),
+                          failures=99)
+    with pytest.raises(_FakeError):
+        extraction.create_with_retry(client, "extraction")
+    assert client.attempts == len(extraction._RETRY_DELAYS_S) + 1
+
+
+def test_create_with_retry_never_retries_client_errors(monkeypatch):
+    # Auth/validation/too-large failures are not transient — retrying them
+    # would just make the user wait ~a minute for the same error.
+    monkeypatch.setattr(extraction.time, "sleep",
+                        lambda s: pytest.fail("must not sleep on a 4xx"))
+    client = _FlakyClient(_FakeError("bad request", status_code=400),
+                          failures=99)
+    with pytest.raises(_FakeError):
+        extraction.create_with_retry(client, "extraction")
+    assert client.attempts == 1
+
+
 def test_retries_are_configured_above_the_sdk_default():
     # The SDK's default of 2 was not enough: uploads that failed succeeded on a
     # manual retry moments later.
