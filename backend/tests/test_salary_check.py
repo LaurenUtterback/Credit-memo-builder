@@ -18,20 +18,20 @@ from app.models import Extraction, SalaryCheck
 # --- the verdict matrix ------------------------------------------------------
 
 def test_equal_figures_match():
-    check = extraction.build_salary_check(1_443_116, 1_443_116, "https://x", "n")
+    check = extraction.build_salary_check(1_650_000, 1_650_000, "https://x", "n")
     assert check["verdict"] == "match"
 
 
 def test_figures_within_tolerance_match():
-    # 0.1% of $2,061,594 is ~$2,062 — a $500 rounding difference is the same figure.
-    check = extraction.build_salary_check(2_061_594, 2_061_094, None, "")
+    # 0.1% of $2,350,000 is ~$2,350 — a $500 rounding difference is the same figure.
+    check = extraction.build_salary_check(2_350_000, 2_349_500, None, "")
     assert check["verdict"] == "match"
 
 
 def test_figures_outside_tolerance_mismatch():
     # The real failure this exists to catch: documents show the guaranteed
     # portion, Spotrac (or the docs) show the full season salary.
-    check = extraction.build_salary_check(1_443_116, 2_061_594, None, "")
+    check = extraction.build_salary_check(1_650_000, 2_350_000, None, "")
     assert check["verdict"] == "mismatch"
 
 
@@ -83,7 +83,7 @@ def test_no_spotrac_page_yields_a_manual_check_note_without_calling_claude():
     # record (so the UI says the check did not run) and must not touch the API.
     out = extraction._check_salary_against_spotrac(
         client=None,  # would explode if used
-        data={"salary": 1_443_116},
+        data={"salary": 1_650_000},
         research={"spotrac_text": None, "spotrac_url": None},
     )
     assert out["verdict"] == "docs_only"
@@ -92,17 +92,17 @@ def test_no_spotrac_page_yields_a_manual_check_note_without_calling_claude():
 
 def test_spotrac_reply_is_parsed_and_compared():
     client = _FakeClient(
-        '```json\n{"spotrac_salary": 2061594, "season": "2026", '
+        '```json\n{"spotrac_salary": 2350000, "season": "2026", '
         '"note": "Base salary per Spotrac."}\n```')
     out = extraction._check_salary_against_spotrac(
         client,
-        data={"borrower_name": "Test Player", "salary": 1_443_116,
-              "contract_remaining": 1_443_116},
+        data={"borrower_name": "Test Player", "salary": 1_650_000,
+              "contract_remaining": 1_650_000},
         research={"spotrac_text": "Contract details ...",
                   "spotrac_url": "https://www.spotrac.com/nfl/player/x"},
     )
     assert out["verdict"] == "mismatch"
-    assert out["spotrac_salary"] == 2_061_594
+    assert out["spotrac_salary"] == 2_350_000
     assert out["season"] == "2026"
     assert out["spotrac_url"] == "https://www.spotrac.com/nfl/player/x"
     # the page text must actually be in the prompt that was sent

@@ -879,7 +879,7 @@ def test_compliance_flags_derogatory_credit(alvarado):
 
 def test_compliance_flags_negative_cash_flow():
     # A big facility against a small salary drives net cash flow negative.
-    comp = _compliance(Extraction(salary=1_000_000), 2_925_000, 1_000_000)
+    comp = _compliance(Extraction(salary=1_000_000), 3_000_000, 1_000_000)
     assert _comp_row(comp, "Positive net cash flow after debt svc.")["status"] == "exc"
     assert any(e["label"] == "Positive net cash flow after debt svc."
                for e in comp["exceptions"])
