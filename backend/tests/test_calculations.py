@@ -391,7 +391,7 @@ def test_render_does_not_double_professional():
     # The extraction often returns "Professional Ice Hockey"; the memo must not
     # render "professional Professional ...".
     terms = DealTerms(
-        name="Mika Zibanejad", team="New York Rangers", league="NHL",
+        name="Erik Lindqvist", team="New York Rangers", league="NHL",
         sport="Professional Ice Hockey", loan=4_435_000, salary=39_500_000,
     )
     html = memo_service.render_html(terms, None, [])
@@ -419,11 +419,11 @@ def test_render_dedupes_professional_in_narrative():
     ed = Extraction(
         sport="Ice Hockey",
         sponsorship_narrative=(
-            "Mika Zibanejad is a professional Professional Ice Hockey player "
+            "Erik Lindqvist is a professional Professional Ice Hockey player "
             "for the New York Rangers of the NHL."
         ),
     )
-    terms = DealTerms(name="Mika Zibanejad", team="New York Rangers",
+    terms = DealTerms(name="Erik Lindqvist", team="New York Rangers",
                       league="NHL", sport="Ice Hockey", loan=4_435_000,
                       salary=39_500_000)
     html = memo_service.render_html(terms, ed, [])
@@ -758,7 +758,7 @@ def test_render_falls_back_to_extracted_deal_terms():
         loan_amount=4_435_000, interest_rate_pct=13.5, origination_fee_pct=3,
         salary=39_500_000,
     )
-    terms = DealTerms(name="Mika Zibanejad")   # nothing typed yet
+    terms = DealTerms(name="Erik Lindqvist")   # nothing typed yet
     html = memo_service.render_html(terms, ed, [])
     assert "$4,435,000" in html                       # loan amount
     assert "13.5%" in html                            # interest rate
@@ -769,7 +769,7 @@ def test_typed_deal_terms_override_extracted():
     # A value the user typed always wins over the document value.
     ed = Extraction(loan_amount=4_435_000, interest_rate_pct=13.5,
                     origination_fee_pct=3, salary=39_500_000)
-    terms = DealTerms(name="Mika Zibanejad", loan=5_000_000, rate=12, fee=2,
+    terms = DealTerms(name="Erik Lindqvist", loan=5_000_000, rate=12, fee=2,
                       salary=39_500_000)
     html = memo_service.render_html(terms, ed, [])
     assert "$5,000,000" in html
