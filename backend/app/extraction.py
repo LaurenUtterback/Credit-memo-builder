@@ -151,6 +151,49 @@ def log_request_manifest(where: str, docs, content: list[dict]) -> None:
                     where, sent_mb)
 
 
+# The Messages API rejects request bodies over ~32 MB with a 413 that names
+# nothing ("Request exceeds the maximum size"). ~30 MB of encoded content
+# leaves headroom for the prompt and JSON framing. Hit 2026-08-11: an 11-file
+# upload measuring ~26 MB raw encoded to ~35 MB and 413'd, and the user only
+# learned "too large" — not which file to remove.
+_REQUEST_BUDGET_MB = 30
+_API_REQUEST_LIMIT_MB = 32
+
+
+def _wire_bytes(block: dict) -> int:
+    """What this block puts in the request body — base64 length, not raw."""
+    if block.get("type") == "text":
+        return len(block.get("text") or "")
+    return len((block.get("source") or {}).get("data") or "")
+
+
+def check_request_size(where: str, docs, content: list[dict]) -> None:
+    """Refuse a request that cannot possibly fit, BEFORE the API round trip.
+
+    Sized the way the 413 limit applies — base64 on the wire — and the error
+    names the largest documents with how much must go, so the user acts on
+    files, not on a bare "too large".
+    """
+    total_mb = sum(_wire_bytes(b) for b in content) / 1_000_000
+    if total_mb <= _REQUEST_BUDGET_MB:
+        return
+    sized = sorted(zip(docs, content), key=lambda dc: _wire_bytes(dc[1]),
+                   reverse=True)
+    biggest = "; ".join(
+        f"{d.filename or '(unnamed)'} (~{_wire_bytes(b) / 1_000_000:.1f} MB encoded)"
+        for d, b in sized[:3]
+    )
+    raise RuntimeError(
+        f"The upload is too large for one request: ~{total_mb:.0f} MB once "
+        f"encoded, over the API's {_API_REQUEST_LIMIT_MB} MB limit — at least "
+        f"~{total_mb - _REQUEST_BUDGET_MB:.0f} MB has to come out. Largest "
+        f"documents: {biggest}. Remove the largest files and extract again "
+        f"(large scanned bundles and brokerage/bank statements usually add "
+        f"nothing the PFS and contract don't already state); anything removed "
+        f"can be typed into Step 2 by hand."
+    )
+
+
 def describe_api_error(exc, where: str) -> str:
     """Turn an Anthropic APIError into something actionable for the user."""
     status = getattr(exc, "status_code", None)
@@ -166,8 +209,10 @@ def describe_api_error(exc, where: str) -> str:
             f"way most often). Request ID {request_id}."
         )
     if status == 413 or "too large" in str(exc).lower():
-        return (f"The upload is too large for one request during {where}. Extract "
-                f"the documents in smaller batches. Request ID {request_id}.")
+        return (f"The upload is too large for one request during {where} — the "
+                f"API caps a request at ~{_API_REQUEST_LIMIT_MB} MB once encoded. "
+                f"Remove the largest documents (the backend log's manifest lists "
+                f"each file's size) and try again. Request ID {request_id}.")
     return f"Claude API error during {where}: {exc} (request ID {request_id})"
 
 PROMPT = """You are a financial analyst at South River Capital preparing a credit memorandum for a professional athlete loan. You have been given one or more documents which may include any combination of: Personal Financial Statement (PFS), player contract, credit report, pay stubs, or other deal documents.
@@ -383,6 +428,7 @@ def extract_documents(docs: list[UploadedDoc]) -> Extraction:
     # reported MIME — see doc_blocks. Word/Excel arrive as extracted text.
     content: list[dict] = build_document_blocks(docs)
     log_request_manifest("extraction", docs, content)
+    check_request_size("extraction", docs, content)
     content.append({"type": "text", "text": PROMPT})
 
     try:

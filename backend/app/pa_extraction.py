@@ -19,7 +19,7 @@ from .pa_models import PAExtraction
 from .doc_blocks import build_document_blocks
 from .extraction import (
     usage_token, build_client, create_with_retry, log_request_manifest,
-    describe_api_error,
+    check_request_size, describe_api_error,
     _OAUTH_BETA_HEADER, _CLAUDE_CODE_SYSTEM,
 )
 
@@ -74,6 +74,7 @@ def extract_documents(docs: list[UploadedDoc]) -> PAExtraction:
     # Magic-byte sniffing, not the browser's MIME — see doc_blocks.
     content: list[dict] = build_document_blocks(docs)
     log_request_manifest("participation-agreement extraction", docs, content)
+    check_request_size("participation-agreement extraction", docs, content)
     content.append({"type": "text", "text": PROMPT})
 
     try:

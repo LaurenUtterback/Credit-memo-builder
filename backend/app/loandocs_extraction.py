@@ -23,7 +23,7 @@ from .models import UploadedDoc
 from .doc_blocks import build_document_blocks
 from .extraction import (
     usage_token, build_client, create_with_retry, log_request_manifest,
-    describe_api_error,
+    check_request_size, describe_api_error,
     _OAUTH_BETA_HEADER, _CLAUDE_CODE_SYSTEM,
 )
 
@@ -124,6 +124,7 @@ def _ask_claude(docs: list[UploadedDoc], prompt: str, max_tokens: int) -> dict:
     # Magic-byte sniffing, not the browser's MIME — see doc_blocks.
     content: list[dict] = build_document_blocks(docs)
     log_request_manifest("loan-documents extraction", docs, content)
+    check_request_size("loan-documents extraction", docs, content)
     content.append({"type": "text", "text": prompt})
 
     try:

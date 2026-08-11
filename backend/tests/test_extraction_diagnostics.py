@@ -59,6 +59,29 @@ def test_oversized_request_is_warned_about(caplog):
     assert "fewer documents" in caplog.text
 
 
+def test_oversized_request_is_refused_before_the_api_call():
+    # 2026-08-11: a ~26 MB raw upload encoded to ~35 MB and the API 413'd with
+    # "Request exceeds the maximum size" — naming nothing. The pre-flight check
+    # must refuse first and name the largest files.
+    docs = [_doc("Supporting Documents.pdf"), _doc("PFS.pdf")]
+    content = [
+        {"type": "document", "source": {"data": "x" * 31_000_000}},
+        {"type": "document", "source": {"data": "y" * 2_000_000}},
+    ]
+    with pytest.raises(RuntimeError) as exc:
+        extraction.check_request_size("extraction", docs, content)
+    msg = str(exc.value)
+    assert "Supporting Documents.pdf" in msg      # the file to act on
+    assert "too large" in msg                     # keeps the UI wording family
+    assert "Step 2" in msg                        # what to do about lost fields
+
+
+def test_request_within_budget_is_not_refused():
+    docs = [_doc("PFS.pdf")]
+    content = [{"type": "document", "source": {"data": "x" * 5_000_000}}]
+    extraction.check_request_size("extraction", docs, content)  # must not raise
+
+
 @pytest.mark.parametrize("status", [500, 502, 503, 529])
 def test_server_errors_are_explained_as_anthropic_side(status):
     msg = extraction.describe_api_error(
