@@ -197,6 +197,20 @@ All three uploaders share `build_client()` / `log_request_manifest()` /
 - **Errors**: a 5xx is reported as Anthropic-side, with the request ID and the
   advice to retry or split the upload — never as a bare status code. Locked by
   `tests/test_extraction_diagnostics.py`.
+- **Oversized uploads are shrunk, not refused** (Lauren, 2026-08-14 — hit on a
+  real ~35 MB deal upload): the API hard-caps a request at ~32 MB encoded, and
+  `check_request_size` sizes the request base64-on-the-wire BEFORE the call.
+  When over the ~30 MB budget, `doc_blocks.shrink_blocks_to_fit` shrinks the
+  largest blocks IN PLACE, only as much as needed: pass 1 re-encodes the images
+  inside PDFs (downscale to 1600 px / JPEG q60 — kept only if actually smaller,
+  because a CCITT fax-compressed scan can GROW as JPEG); pass 2 swaps a
+  still-oversized PDF for its text layer, labeled in the block so the model
+  knows (scans have no text layer and are never swapped; capped at 150k chars).
+  A ~39 MB three-bundle fixture shrinks to ~11 MB in ~1.3 s with every document
+  still visual. Every change is INFO-logged so a degraded document is never
+  silent; what still cannot fit gets the same named-files refusal, now saying
+  "even after automatic compression". All four uploaders share this via
+  `check_request_size`. Locked by `tests/test_upload_shrink.py`.
 
 ## The extraction prompt
 

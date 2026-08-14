@@ -168,7 +168,9 @@ def _wire_bytes(block: dict) -> int:
 
 
 def check_request_size(where: str, docs, content: list[dict]) -> None:
-    """Refuse a request that cannot possibly fit, BEFORE the API round trip.
+    """Make an over-budget request fit BEFORE the API round trip — shrink the
+    largest blocks (image recompression, then text-layer swaps; see
+    doc_blocks.shrink_blocks_to_fit), and refuse only what still cannot fit.
 
     Sized the way the 413 limit applies — base64 on the wire — and the error
     names the largest documents with how much must go, so the user acts on
@@ -177,6 +179,20 @@ def check_request_size(where: str, docs, content: list[dict]) -> None:
     total_mb = sum(_wire_bytes(b) for b in content) / 1_000_000
     if total_mb <= _REQUEST_BUDGET_MB:
         return
+
+    # Shrink instead of refusing (Lauren, 2026-08-14). Mutates content in
+    # place; every change is logged so a degraded document is never silent.
+    from .doc_blocks import shrink_blocks_to_fit
+
+    log = logging.getLogger(__name__)
+    notes = shrink_blocks_to_fit(docs, content, _REQUEST_BUDGET_MB * 1_000_000)
+    if notes:
+        log.info("%s: upload was ~%.1f MB encoded — shrunk to fit: %s",
+                 where, total_mb, "; ".join(notes))
+    total_mb = sum(_wire_bytes(b) for b in content) / 1_000_000
+    if total_mb <= _REQUEST_BUDGET_MB:
+        return
+
     sized = sorted(zip(docs, content), key=lambda dc: _wire_bytes(dc[1]),
                    reverse=True)
     biggest = "; ".join(
@@ -185,7 +201,8 @@ def check_request_size(where: str, docs, content: list[dict]) -> None:
     )
     raise RuntimeError(
         f"The upload is too large for one request: ~{total_mb:.0f} MB once "
-        f"encoded, over the API's {_API_REQUEST_LIMIT_MB} MB limit — at least "
+        f"encoded (even after automatic compression), over the API's "
+        f"{_API_REQUEST_LIMIT_MB} MB limit — at least "
         f"~{total_mb - _REQUEST_BUDGET_MB:.0f} MB has to come out. Largest "
         f"documents: {biggest}. Remove the largest files and extract again "
         f"(large scanned bundles and brokerage/bank statements usually add "
