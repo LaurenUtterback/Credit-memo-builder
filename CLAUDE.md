@@ -709,6 +709,24 @@ Backend pieces:
   for `salary_guaranteed`. Do not re-declare these as plain `str`/`list`: one
   unstated field then fails the whole upload. The route also catches non-
   RuntimeError exceptions as a 422 naming the cause rather than a bare 500.
+- SPOTRAC CROSS-CHECK (Lauren, 2026-08-14): after the document extraction,
+  `structure_extraction._verify_with_spotrac` fetches the athlete's Spotrac
+  page (research.spotrac_lookup — the same Playwright fetch the memo uses) and
+  a second Claude call (`_ask_spotrac`, SPOTRAC_CHECK_PROMPT) reads it for the
+  season CAP HIT (same rule as the memo's check: base + prorated/counted
+  bonuses, never base alone), the CURRENT team, and the league. The salary
+  verdict comes from the memo's `extraction.build_salary_check` — computed
+  server-side, never by the model — and lands on
+  `StructureExtraction.salary_check` (models.SalaryCheck), with
+  `spotrac_team` / `spotrac_league` alongside. Best-effort by contract: any
+  failure leaves a "verify manually" note and never breaks /structure/extract.
+  StructureBuilder.vue shows live-recomputed verification lines under the
+  salary / team / league fields (mirroring App.vue's salaryVerify; team/league
+  match is normalized containment, so "the Denver Broncos Football Club" ==
+  "Denver Broncos"), offers "Use Spotrac" buttons (taking Spotrac's league
+  also reloads the cadence default), and fills a field from Spotrac ONLY when
+  the documents produced nothing — labeled in the status line. The documents
+  stay authoritative. Locked by `tests/test_structure_spotrac.py`.
 - Routes: `GET /api/structure/cadences`, `GET /api/structure/cadence/{league}`,
   `POST /api/structure/extract`, `POST /api/structure/propose`,
   `POST /api/structure/select`.
@@ -810,3 +828,20 @@ forward. A debt whose balance rolls to zero by the funding date has its
 payments dropped from debt service too — otherwise an old PFS inflates the
 borrower's obligations with debts they have since repaid. The roll-forward note
 is surfaced in the tab so the adjustment is visible, never silent.
+
+The UPLOAD path does this too (Lauren, 2026-08-14), not just "Pull from the
+Credit Memo tab": the structuring prompt captures the PFS in the MEMO
+extraction's own shape — `StructureExtraction.pfs` (`PFSRead`: `pfs_date`, the
+Annual Expenditures fields, `debt_schedule` Schedule D/F/G rows with the same
+category enum and ROW ALIGNMENT guard as the memo prompt) — and
+`structure_extraction._debt_service_from_pfs` hands that block to
+`Extraction(**pfs.model_dump())` -> `debt_service_from_memo`, using the
+extracted funding date as the roll-forward as-of. The computed figure
+overwrites `other_debt_annual`; the model's own summed value is kept ONLY as a
+fallback when the PFS produced no usable lines (the prompt says so explicitly).
+`debt_service_note` carries the roll-forward narrative to the UI (the same
+`pfsNote` line the pull path uses). Best-effort: any failure keeps the fallback
+and never breaks /structure/extract. `PFSRead`'s validators clean nulls and
+formatted money INSIDE nested rows (a `{"label": null}` line item or a
+"$350,000" balance must not 500 the upload — the same lesson as `_Tolerant`,
+one level down). Locked by `tests/test_structure_pfs.py`.

@@ -40,6 +40,10 @@ const extractNotes = ref('')
 const memoPush = ref('')
 // Maturity as presented in the documents — carried to the memo's terms grid.
 const presentedMaturity = ref('')
+// Spotrac cross-check returned by the extraction: the salary check (memo-tab
+// machinery) plus the team and league as Spotrac lists them. Verification
+// only — the documents stay authoritative.
+const spotrac = ref(null)
 
 const cadences = ref([])
 const cadence = reactive({})          // the editable cadence for this deal
@@ -103,6 +107,77 @@ function money(n, dp = 0) {
 
 function pct(n) {
   return n === null || n === undefined ? '—' : `${n.toFixed(2)}x`
+}
+
+// --- Spotrac cross-check ------------------------------------------------------
+// The backend compared Spotrac against the DOCUMENTS' figures; here each verdict
+// is recomputed against whatever is in the field right now, so the lines stay
+// truthful while the user edits (mirrors App.vue's salaryVerify — tolerance
+// 0.1%, min $1).
+const VERDICT_CLASS = {
+  match: 'ok', mismatch: 'warn', spotrac_only: 'warn',
+  docs_only: 'muted', unavailable: 'muted',
+}
+
+const salaryVerify = computed(() => {
+  const c = spotrac.value?.check
+  if (!c) return null
+  const cur = Number(inputs.salary) || 0
+  const spo = Number(c.spotrac_salary) || 0
+  let verdict
+  if (spo && cur) {
+    const tol = Math.max(Math.max(spo, cur) * 0.001, 1)
+    verdict = Math.abs(spo - cur) <= tol ? 'match' : 'mismatch'
+  } else if (spo) {
+    verdict = 'spotrac_only'
+  } else {
+    verdict = c.verdict === 'unavailable' && !cur ? 'unavailable' : 'docs_only'
+  }
+  return { ...c, verdict }
+})
+
+const salaryVerifyMsg = computed(() => {
+  const v = salaryVerify.value
+  if (!v) return ''
+  const tag = v.season ? `Spotrac (${v.season} season)` : 'Spotrac'
+  switch (v.verdict) {
+    case 'match': return `✓ Matches ${tag} cap hit: ${money(v.spotrac_salary)}`
+    case 'mismatch': return `⚠ ${tag} cap hit is ${money(v.spotrac_salary)} — verify against the executed contract.`
+    case 'spotrac_only': return `⚠ ${tag} cap hit is ${money(v.spotrac_salary)} — the documents produced no figure.`
+    case 'docs_only': return `${tag}: no usable figure — documents only.`
+    default: return 'Spotrac check could not be run — verify the salary manually.'
+  }
+})
+
+const showUseSpotrac = computed(() =>
+  ['mismatch', 'spotrac_only'].includes(salaryVerify.value?.verdict))
+
+// Team/league names rarely match character-for-character ("the Denver Broncos
+// Football Club" vs "Denver Broncos"), so equality is containment either way
+// on a normalized form — a mismatch flag on a cosmetic difference would teach
+// the user to ignore the line.
+function normName(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ').trim()
+}
+function nameVerify(cur, spo, what) {
+  if (spotrac.value === null) return null
+  if (!spo) return cur ? { verdict: 'docs_only', msg: `Spotrac: no ${what} found — documents only.` } : null
+  const a = normName(cur), b = normName(spo)
+  if (!a) return { verdict: 'spotrac_only', msg: `⚠ Spotrac lists ${spo} — the documents produced none.`, value: spo }
+  return (a.includes(b) || b.includes(a))
+    ? { verdict: 'match', msg: `✓ Matches Spotrac: ${spo}` }
+    : { verdict: 'mismatch', msg: `⚠ Spotrac lists ${spo} — verify.`, value: spo }
+}
+
+const teamVerify = computed(() => nameVerify(inputs.team, spotrac.value?.team, 'team'))
+const leagueVerify = computed(() => nameVerify(inputs.league, spotrac.value?.league, 'league'))
+
+// The league drives the pay-cadence default, so taking Spotrac's league must
+// also reload the cadence (the input's @change doesn't fire on programmatic sets).
+async function useSpotracLeague() {
+  inputs.league = spotrac.value.league
+  await loadCadence()
 }
 
 // --- pull from the Credit Memo tab -----------------------------------------
@@ -202,6 +277,28 @@ async function readDocuments() {
     for (const [k, v] of Object.entries(direct)) {
       if (v !== null && v !== undefined && v !== '') inputs[k] = v
     }
+
+    // Spotrac cross-check (run by the backend): verification lines under the
+    // salary / team / league fields. A field is FILLED from Spotrac only when
+    // the documents produced nothing — clearly labeled below, and the league
+    // fill lands before loadCadence() so the right pay-cadence default seeds.
+    spotrac.value = (ed.salary_check || ed.spotrac_team || ed.spotrac_league)
+      ? { check: ed.salary_check || null, team: ed.spotrac_team || '', league: ed.spotrac_league || '' }
+      : null
+    const fromSpotrac = []
+    if (!inputs.salary && spotrac.value?.check?.spotrac_salary) {
+      inputs.salary = spotrac.value.check.spotrac_salary
+      fromSpotrac.push('guaranteed salary')
+    }
+    if (!inputs.team && spotrac.value?.team) {
+      inputs.team = spotrac.value.team
+      fromSpotrac.push('team')
+    }
+    if (!inputs.league && spotrac.value?.league) {
+      inputs.league = spotrac.value.league
+      fromSpotrac.push('league')
+    }
+
     for (const k of ['contract_end', 'funding_date', 'expected_exit_date']) {
       if (ed[k]) inputs[k] = normalizeDate(ed[k])
     }
@@ -253,10 +350,18 @@ async function readDocuments() {
       gaps.push(`pay cadence (using the ${cadence.league || 'default'} league default)`)
     }
 
+    // The PFS is read the way the credit memo reads it (same rows, same stale-
+    // statement roll-forward, computed by the backend) — surface how, so an
+    // adjusted or excluded debt is visible, never silent.
+    pfsNote.value = ed.debt_service_note || ''
+
     extractNotes.value = [ed.notes, ed.salary_guarantee_note, ed.pay_election_note]
       .filter(Boolean).join(' · ')
     readStatus.type = gaps.length ? 'info' : 'ok'
     readStatus.msg = '✓ Read the documents — review below'
+      + (fromSpotrac.length
+        ? `. The documents didn't state ${fromSpotrac.join(', ')} — filled from Spotrac; verify against the executed contract`
+        : '')
       + (gaps.length ? `. Still needed: ${gaps.join(', ')}.` : '. Ready to run.')
 
     // Carry the deal terms forward to the Credit Memo tab straight away, so the
@@ -464,14 +569,36 @@ function applyToLoanDocs() {
 
     <div class="grid">
       <label>Borrower <input v-model="inputs.borrower_name" /></label>
-      <label>Team <input v-model="inputs.team" /></label>
+      <label>Team
+        <input v-model="inputs.team" />
+        <span v-if="teamVerify" :class="['verify', VERDICT_CLASS[teamVerify.verdict]]">
+          {{ teamVerify.msg }}
+          <button v-if="teamVerify.value" type="button" class="use"
+                  @click="inputs.team = spotrac.team">Use Spotrac</button>
+        </span>
+      </label>
       <label>League
         <input v-model="inputs.league" list="leagues" @change="loadCadence" placeholder="NFL / NBA / MLB / NHL / MLS" />
         <datalist id="leagues">
           <option v-for="c in cadences" :key="c.league" :value="c.league" />
         </datalist>
+        <span v-if="leagueVerify" :class="['verify', VERDICT_CLASS[leagueVerify.verdict]]">
+          {{ leagueVerify.msg }}
+          <button v-if="leagueVerify.value" type="button" class="use"
+                  @click="useSpotracLeague">Use Spotrac</button>
+        </span>
       </label>
-      <label>Guaranteed season salary <input v-model.number="inputs.salary" type="number" /></label>
+      <label>Guaranteed season salary
+        <input v-model.number="inputs.salary" type="number" />
+        <span v-if="salaryVerify" :class="['verify', VERDICT_CLASS[salaryVerify.verdict]]">
+          {{ salaryVerifyMsg }}
+          <button v-if="showUseSpotrac" type="button" class="use"
+                  @click="inputs.salary = salaryVerify.spotrac_salary">Use Spotrac figure</button>
+          <a v-if="salaryVerify.spotrac_url" :href="salaryVerify.spotrac_url"
+             target="_blank" rel="noopener">view&nbsp;↗</a>
+        </span>
+        <span v-if="salaryVerify?.note" class="verify-note">{{ salaryVerify.note }}</span>
+      </label>
       <label>Other income (annual) <input v-model.number="inputs.other_income" type="number" /></label>
       <label>Other debt service (annual) <input v-model.number="inputs.other_debt_annual" type="number" /></label>
       <label>Contract end <input v-model="inputs.contract_end" type="date" /></label>
@@ -561,6 +688,14 @@ function applyToLoanDocs() {
   <section class="card">
     <h2><span class="step">4</span> Pay cadence</h2>
     <p v-if="cadence.label" class="cad-label">{{ cadence.league || 'Custom' }} — {{ cadence.label }}</p>
+    <p v-if="leagueVerify && leagueVerify.verdict === 'match'" class="verify ok">
+      ✓ League confirmed on Spotrac — the season window and pay frequency below follow
+      the {{ inputs.league }} default unless the contract stated its own.
+    </p>
+    <p v-else-if="leagueVerify && leagueVerify.verdict === 'mismatch'" class="verify warn">
+      ⚠ Spotrac lists a different league ({{ spotrac.league }}) — the season window and
+      pay frequency below follow the league in Step 2, so settle that first.
+    </p>
     <div class="grid">
       <label>Pay frequency
         <select v-model="cadence.pay_frequency">
@@ -786,4 +921,15 @@ button.sm { padding: 5px 10px; font-size: 12px; margin: 0; }
 .cover-tbl tr.balloon td { background: #f4f6f8; font-weight: 600; }
 .rm { background: transparent; color: #b00020; border: 0; padding: 0 4px; margin: 0;
   font-size: 13px; cursor: pointer; }
+
+/* Spotrac verification lines — same look as the memo tab's (App.vue). */
+.verify { font-size: 11px; line-height: 1.45; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.verify.ok { color: #0f6e56; }
+.verify.warn { color: #9a6b00; }
+.verify.muted { color: #888; }
+.verify a { color: inherit; }
+.verify .use { background: none; border: 0; padding: 0; margin: 0; color: #0c447c;
+  text-decoration: underline; cursor: pointer; font-size: 11px; font-weight: 600; }
+.verify-note { font-size: 11px; line-height: 1.45; color: #888; font-style: italic; }
+p.verify { margin: 0 0 10px; }
 </style>
