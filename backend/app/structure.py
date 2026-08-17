@@ -659,6 +659,14 @@ def _recommend(cands: list[StructureCandidate], inputs: StructureInputs) -> None
 
 def propose_structures(inputs: StructureInputs) -> StructureResult:
     """Project the cash flow and score every candidate structure against it."""
+    if inputs.no_team_contract:
+        # No playing contract: enforced here rather than trusted to the form —
+        # a stale salary left in a disabled field must not fund the projection.
+        # Other income and dated bonus payments are all the cash there is,
+        # which is exactly what the candidate builders then see.
+        inputs = inputs.model_copy(update={"salary": 0.0,
+                                           "salary_guaranteed": False})
+
     cad = resolve_cadence(inputs)
     cash_flow = project_cash_flow(inputs, cad)
 
@@ -675,7 +683,11 @@ def propose_structures(inputs: StructureInputs) -> StructureResult:
     annual_available = annual_gross * (1 - TAX_RATE - LIVING_RATE) - (inputs.other_debt_annual or 0.0)
 
     notes: list[str] = []
-    if cad.notes:
+    if inputs.no_team_contract:
+        notes.append(
+            "No team contract — the projection runs on other income and dated "
+            "payments only; no salary or salary cadence is used.")
+    if cad.notes and not inputs.no_team_contract:
         notes.append(f"{cad.league or 'Cadence'}: {cad.notes}")
     if not inputs.funding_date:
         notes.append("No funding date entered — the projection starts today.")

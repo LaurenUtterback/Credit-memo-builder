@@ -799,6 +799,23 @@ Validated against a real NFL deal: the engine reproduces the season's 18 game
 checks across Sep–Jan, fails both amortizing structures, and recommends the
 bullet — matching the memo's own conclusion.
 
+NO-TEAM-CONTRACT MODE (Lauren, 2026-08-14 — mirrors loandocs'
+no_team_contract): `StructureInputs.no_team_contract` + a checkbox at the top
+of Step 2 ("Athlete does not have a contract with a Team / employer"). When
+checked: team/league/salary/contract-end/guarantee fields are disabled, the
+Spotrac verification lines are suppressed, extraction and Spotrac fills skip
+the contract fields, sendToMemo() never carries team/league/salary, the pay
+cadence controls are hidden (income = other income spread evenly + dated bonus
+events, which stay editable — they ARE the income), and "Propose terms" is
+disabled (its amount is capped against guaranteed earnings). ENFORCED
+SERVER-SIDE in `propose_structures` — salary is zeroed and salary_guaranteed
+forced False whatever the form carried, a note is added to the result, and
+`structure_summary.build_context` presents the no-contract header (the summary
+routes pass the ORIGINAL inputs, so a stale typed salary must not render).
+Applying a structure also sets the Loan Documents store's `no_team_contract`,
+which already blanks the cover and drops the Payment Direction Letter there.
+Locked by `tests/test_structure_no_contract.py`.
+
 ### Proposing the terms (Lauren/Jim, 2026-08-10)
 
 These deals have NO term sheet to upload, so the tool proposes the loan itself

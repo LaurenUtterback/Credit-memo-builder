@@ -85,6 +85,12 @@ class StructureInputs(BaseModel):
     # Certainty
     contract_end: Optional[_date] = None
     salary_guaranteed: bool = True
+    # No playing contract at all (free agent / income not from a team).
+    # ENFORCED SERVER-SIDE in propose_structures — salary is zeroed and the
+    # projection runs on other income and dated payments only, whatever the
+    # form still carried (the same belt-and-suspenders as loandocs'
+    # no_team_contract dropping the Payment Direction Letter in render_html).
+    no_team_contract: bool = False
 
     # Timing
     cadence: Optional[LeagueCadence] = None      # None → league default

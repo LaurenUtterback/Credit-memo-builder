@@ -100,23 +100,30 @@ def build_context(result: StructureResult, inputs: StructureInputs) -> dict:
     leverage = (f"{inputs.loan_amount / avail:.1f}x" if avail > 0 else "—")
     cad = result.cadence_used
 
+    # No team contract: propose_structures already ran on zeroed salary, but
+    # THIS context is built from the route's original inputs — so the header
+    # must not show a stale typed salary or team as if a contract backed them.
+    no_contract = bool(getattr(inputs, "no_team_contract", False))
+
     return {
         "logo": _LOGO_PATH.read_text().strip(),
         "today": date.today().strftime("%B %d, %Y"),
         "borrower": inputs.borrower_name,
-        "team": inputs.team,
-        "league": inputs.league,
+        "team": "None — no team contract" if no_contract else inputs.team,
+        "league": "" if no_contract else inputs.league,
         "loan_money": _money(inputs.loan_amount),
         "rate": f"{inputs.interest_rate:g}",
         "points": f"{inputs.origination_fee_pct:g}" if inputs.origination_fee_pct else "",
         "funding": _fmt_date(inputs.funding_date),
-        "salary_money": _money(inputs.salary),
-        "guaranteed": inputs.salary_guaranteed,
+        "salary_money": "—" if no_contract else _money(inputs.salary),
+        "guaranteed": False if no_contract else inputs.salary_guaranteed,
         "presented": inputs.presented_type,
         "leverage": leverage,
         "annual_available_money": _money(avail),
-        "cadence_label": cad.label or "—",
-        "cadence_source": (f"{cad.league} pay cadence" if cad.league else "pay cadence on file"),
+        "cadence_label": "No salary cadence" if no_contract else (cad.label or "—"),
+        "cadence_source": ("no team contract" if no_contract
+                           else f"{cad.league} pay cadence" if cad.league
+                           else "pay cadence on file"),
         "min_coverage": inputs.min_coverage or 1.0,
         "candidates": cands,
         "recommended": recommended,
