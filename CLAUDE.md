@@ -121,7 +121,20 @@ never silently.
     `calc_debt_rollforward` / `_apply_rollforward` in calculations.py, fed by
     the `pfs_date` + `debt_schedule` extraction fields (Schedules D/F/G). The
     memo footnotes the PFS table and appends a drafted explanation to the
-    Credit paragraph (`_credit_text`). Each debt has a `treatment`: "roll"
+    Credit paragraph (`_credit_text`). Section IX also LISTS every scheduled
+    debt as an indented detail line under the summary liability it rolls into
+    (`_debt_detail_rows` / `_debt_row_html` in memo.py), showing the carried
+    balance with the schedule, the reported balance and the basis in fine
+    print — including the debts carried exactly as reported, which move no
+    total and so reached the memo nowhere before 2026-08-18. These lines are a
+    BREAKDOWN of the summary line above them and never change a total; a debt
+    whose category matches no liability line on the statement is listed at the
+    foot of the block under an explicit "not carried in the summary totals
+    above" caveat (`_orphan_debt_rows`) rather than being silently dropped.
+    KNOWN GAP: a hand-added debt the PFS summary genuinely omits is still shown
+    as detail only, so it does NOT raise Total Liabilities — the detail lines
+    then will not sum to the summary line. Adding an "additive" treatment is
+    the open question. Each debt has a `treatment`: "roll"
     (default), "hold" (carry as reported) or "zero" (repaid in full — the whole
     balance leaves its summary liability, and unlike a roll-forward this does
     NOT require a stale PFS). Step 2b of the UI shows reported vs adjusted per
@@ -815,6 +828,22 @@ routes pass the ORIGINAL inputs, so a stale typed salary must not render).
 Applying a structure also sets the Loan Documents store's `no_team_contract`,
 which already blanks the cover and drops the Payment Direction Letter there.
 Locked by `tests/test_structure_no_contract.py`.
+
+PROPOSED (UNEXECUTED) CONTRACT within no-contract mode (Lauren, 2026-08-14):
+`StructureInputs.proposed_contract_value` / `proposed_contract_date`, entered
+in Step 2 when the no-contract box is checked. The proposed contract does two
+things and deliberately NOT a third: (1) it SIZES the loan — "Propose terms"
+re-enables and the LTC policy cap runs on the proposed value (the executed
+contract-remaining figure is explicitly ignored in this mode), with a warning
+that it is sized against an unexecuted contract and requires credit approval;
+(2) its expected signing date becomes the EXIT EVENT when none was entered
+(`_apply_no_contract`, shared by propose_structures and propose_terms — label
+"proposed contract signing"), so the bullet matures just after the signing;
+(3) it is NEVER projected as income — nothing is contractually owed until it
+is signed, and the projection still runs on other income + dated payments
+only. The result notes carry the proposed-contract line (rendered on the
+summary PDF too). Locked by the `test_proposed_*` tests in
+`tests/test_structure_no_contract.py`.
 
 ### Proposing the terms (Lauren/Jim, 2026-08-10)
 

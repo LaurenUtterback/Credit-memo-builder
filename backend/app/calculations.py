@@ -300,6 +300,34 @@ _CATEGORY_MATCHERS = (
     ("notes_payable_others", re.compile(r"notes?\s*payable", re.I)),
 )
 
+# How each category is named to a reader, and which PFS detail schedule it comes
+# from. Used by the memo's Section IX debt table and by the paydown warnings, so
+# neither shows a raw field name like "notes_payable_others".
+CATEGORY_LABELS = {
+    "mortgage_debt": ("D", "Mortgage Debt"),
+    "notes_payable_others": ("F", "Notes Payable to: others"),
+    "notes_payable_contract": ("G", "Notes Payable: Contract Based"),
+}
+
+
+def category_label(cat: str) -> str:
+    """Reader-facing name for a summary-liability category ("" when unset)."""
+    return CATEGORY_LABELS.get(cat or "", ("", ""))[1]
+
+
+def category_schedule(cat: str) -> str:
+    """The PFS detail schedule letter a category comes from ("" when unset)."""
+    return CATEGORY_LABELS.get(cat or "", ("", ""))[0]
+
+
+def summary_category(label: str) -> str:
+    """Which summary-liability category a page-1 liability label belongs to.
+
+    Public wrapper so the memo can list each scheduled debt under the summary
+    line it rolls into, grouping them exactly the way the paydown is applied.
+    """
+    return _summary_category(label)
+
 
 def _parse_loose_date(raw: str | None) -> Optional[date]:
     """Parse a PFS schedule date, tolerating the forms these sheets produce.
@@ -427,6 +455,9 @@ def calc_debt_rollforward(ed: Optional[Extraction], as_of: Optional[date]) -> di
             "payment": r.payment or 0.0,
             "maturity": r.maturity or "",
             "maturity_date": _parse_loose_date(r.maturity),
+            # "Reason for Debt" / property address — shown under the lender in
+            # the memo's Section IX debt table.
+            "description": r.description or "",
             "treatment": r.treatment or "roll",
             "months_applied": 0,
             "paydown": 0.0,
@@ -550,11 +581,18 @@ def _apply_rollforward(liab_items: list[LineItem], rf: dict) -> list[LineItem]:
             out.append(LineItem(label=item.label, amount=item.amount - cut))
         else:
             out.append(LineItem(label=item.label, amount=item.amount))
-    for cat, left in remaining.items():
-        if left > 0.5:
-            rf.setdefault("warnings", []).append(
-                f"{_money0(left)} of computed paydown for \"{cat}\" had no matching "
-                f"liability line on the statement and was not applied.")
+    # What could NOT be applied, per category — either the row has no "Rolls
+    # into" category, or the statement carries no summary line to take it out
+    # of. Recorded on rf so the memo's debt table can say so on the row itself
+    # instead of quietly showing an adjusted balance no total reflects.
+    unapplied = {cat: left for cat, left in remaining.items() if left > 0.5}
+    rf["unapplied_by_category"] = unapplied
+    for cat, left in unapplied.items():
+        where = (f'"{category_label(cat)}"' if category_label(cat)
+                 else 'a debt with no "Rolls into" category set')
+        rf.setdefault("warnings", []).append(
+            f"{_money0(left)} of computed paydown for {where} had no matching "
+            f"liability line on the statement and was not applied.")
     return out
 
 

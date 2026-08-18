@@ -749,6 +749,85 @@ def test_render_html_documents_the_rollforward(stale_pfs, monkeypatch):
     assert "$618,815 to $555,795" in html
 
 
+MEMO_TERMS = DealTerms(name="Test Borrower", loan=2_025_000, rate=13.5,
+                      salary=1_624_396)
+
+
+@pytest.fixture
+def at_memo_date(monkeypatch):
+    monkeypatch.setattr(memo_service, "date", type("D", (date,), {
+        "today": staticmethod(lambda: MEMO_DATE)}))
+
+
+def test_every_scheduled_debt_is_listed_under_its_summary_liability(
+        stale_pfs, at_memo_date):
+    """Section IX lists each financed debt beneath the liability it rolls into,
+    including the ones carried exactly as reported — those move no total and
+    would otherwise appear nowhere on the memo."""
+    html = memo_service.render_html(MEMO_TERMS, stale_pfs, [])
+    for lender in ("Primary residence", "second residence", "Northgate Bank",
+                   "Credit Cards", "MidState Bank", "Sports Finance Fund, LP"):
+        assert lender in html, f"{lender} is missing from the memo"
+    # Each line carries the balance the memo uses, with the basis in fine print.
+    assert "$555,795" in html
+    assert "$618,815 reported, rolled forward 10 months" in html
+    assert "no scheduled payment (revolving)" in html          # Credit Cards
+    assert "not on a monthly schedule" in html                 # contract note
+    # Listed under the right parent: the mortgages sit between Mortgage Debt
+    # and the next summary line, not loose at the foot of the table.
+    mortgage = html.index("Mortgage Debt")
+    others = html.index("Notes Payable to: others")
+    assert mortgage < html.index("Primary residence") < others
+    assert others < html.index("Northgate Bank") < html.index("Notes Payable: Contract Based")
+
+
+def test_a_hand_added_debt_that_moves_no_total_still_shows(stale_pfs, at_memo_date):
+    # The case that sent an underwriter looking for it: a debt entered by hand
+    # and held as reported changes no figure, but must still reach the memo.
+    stale_pfs.debt_schedule.append(DebtScheduleRow(
+        lender="Hand-added note", category="notes_payable_others",
+        balance=30_000, payment=500, payment_period="monthly",
+        treatment="hold"))
+    html = memo_service.render_html(MEMO_TERMS, stale_pfs, [])
+    assert "Hand-added note" in html
+    assert "held at the reported balance" in html
+
+
+def test_detail_lines_never_change_the_totals(stale_pfs, at_memo_date):
+    """The debts are a breakdown of the summary liabilities, not additions to
+    them — listing them must leave Total Liabilities and Net Worth untouched."""
+    stale_pfs.debt_schedule.append(DebtScheduleRow(
+        lender="Hand-added note", category="notes_payable_others",
+        balance=30_000, payment=500, payment_period="monthly", treatment="hold"))
+    bs = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    assert bs["stated_liab"] == 4_263_676
+    assert bs["net_worth"] == 5_168_151 - 4_263_676
+
+
+def test_a_debt_with_no_summary_line_is_shown_but_marked_excluded(
+        stale_pfs, at_memo_date):
+    stale_pfs.debt_schedule.append(DebtScheduleRow(
+        lender="Uncategorised", category="", balance=30_000, payment=500,
+        payment_period="monthly"))
+    html = memo_service.render_html(MEMO_TERMS, stale_pfs, [])
+    assert "Uncategorised" in html
+    assert "not carried in the summary totals above" in html
+
+
+def test_no_detail_lines_without_a_schedule(stale_pfs, at_memo_date):
+    stale_pfs.debt_schedule = []
+    html = memo_service.render_html(MEMO_TERMS, stale_pfs, [])
+    assert 'class="dsc"' not in html
+
+
+def test_unapplied_paydown_is_recorded_per_category(stale_pfs):
+    stale_pfs.debt_schedule.append(DebtScheduleRow(
+        lender="Uncategorised", category="", balance=30_000, payment=500,
+        payment_period="monthly"))
+    bs = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    assert bs["rollforward"]["unapplied_by_category"] == {"": 5_000}
+
+
 # --- Deal terms pulled from the documents ---------------------------------
 
 def test_render_falls_back_to_extracted_deal_terms():

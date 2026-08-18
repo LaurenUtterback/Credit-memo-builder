@@ -146,6 +146,68 @@ def _rollforward_footnote(rf: dict) -> str:
             f'Revolving and non-monthly obligations are carried as reported.')
 
 
+def _debt_row_html(r: dict) -> str:
+    """One scheduled debt as an indented detail line under a summary liability.
+
+    The amount is the balance this memorandum carries; the fine print names the
+    schedule it came from and, when the carried figure differs from the
+    statement, the reported balance it was brought forward from.
+    """
+    bits = []
+    if r["description"] and r["description"].lower() != r["lender"].lower():
+        bits.append(r["description"])
+    if sch := calc.category_schedule(r["category"]):
+        bits.append(f"Schedule {sch}")
+    if r["zeroed"]:
+        bits.append(f'{_money(r["reported"])} reported, shown as repaid in full')
+    elif r["rolled"]:
+        n = r["months_applied"]
+        bits.append(f'{_money(r["reported"])} reported, rolled forward '
+                    f'{n} month{"" if n == 1 else "s"}')
+    elif r["treatment"] == "hold":
+        bits.append("held at the reported balance")
+    elif r["reason"]:
+        bits.append(f'as reported &mdash; {r["reason"]}')
+    return (f'<tr class="dsc"><td class="dsc-lbl">{r["lender"]}'
+            f'<span class="dsc-note">{" &middot; ".join(bits)}</span></td>'
+            f'<td class="num-col">{_money(r["adjusted"])}</td></tr>')
+
+
+def _debt_detail_rows(rf: dict, category: str) -> str:
+    """The scheduled debts that roll up into one page-1 summary liability,
+    listed beneath it (rule 15).
+
+    Every debt on the schedule appears — including the ones carried exactly as
+    reported, which move no total and would otherwise show up nowhere on the
+    memo. They are a BREAKDOWN of the summary line above them, never added into
+    a total.
+    """
+    if not category:
+        return ""
+    return "".join(_debt_row_html(r) for r in (rf.get("rows") or [])
+                   if r["category"] == category)
+
+
+def _orphan_debt_rows(rf: dict, liab_items: list) -> str:
+    """Scheduled debts with no summary liability to sit under — a row whose
+    "Rolls into" category is unset, or one the statement carries no line for.
+
+    Listed at the foot of the liabilities block under an explicit caveat: these
+    balances are NOT inside Total Liabilities, so nothing is double counted and
+    nothing is silently dropped either.
+    """
+    covered = {calc.summary_category(l.label) for l in liab_items if l.amount}
+    orphans = [r for r in (rf.get("rows") or []) if r["category"] not in covered]
+    if not orphans:
+        return ""
+    return (
+        '<tr class="dsc"><td class="dsc-lbl" colspan="2"><em>Scheduled debt not '
+        'carried in the summary totals above &mdash; no matching liability line '
+        'on the statement:</em></td></tr>'
+        + "".join(_debt_row_html(r) for r in orphans)
+    )
+
+
 def _pfs_html(ed: Extraction | None, facility_due: float, salary: float,
               as_of: date | None = None) -> str:
     bs = calc.calc_balance_sheet(ed, facility_due, as_of)
@@ -163,6 +225,10 @@ def _pfs_html(ed: Extraction | None, facility_due: float, salary: float,
         for l in bs["liab_items"]:
             if l.amount:
                 out.append(f'<tr><td>{l.label}</td><td class="num-col">{_money(l.amount)}</td></tr>')
+                # Rule 15 — each financed debt that rolls into this line is
+                # listed under it, so a debt added in Step 2b always shows.
+                out.append(_debt_detail_rows(rf, calc.summary_category(l.label)))
+        out.append(_orphan_debt_rows(rf, bs["liab_items"]))
         out.append(f'<tr class="total"><td>Total Liabilities (incl. Proposed Facility)</td>'
                    f'<td class="num-col">{_money(bs["total_liab"])}</td></tr>')
         out.append(f'<tr class="grand"><td>Net Worth (Total Assets &minus; Total Liabilities)</td>'
