@@ -23,7 +23,11 @@ deal documents provided.
 
 from __future__ import annotations
 
+import json
 import logging
+import subprocess
+import sys
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +175,39 @@ def spotrac_lookup(name: str, league: str | None,
     return None, None
 
 
+def _backend_python() -> str:
+    """The venv's own python.exe — never sys.executable.
+
+    The live server is a re-exec'd child whose sys.executable points at the
+    BASE Python312 install (see run_local.py), which has no playwright; the
+    venv interpreter next to the app does.
+    """
+    venv = Path(__file__).resolve().parents[1] / ".venv" / "Scripts" / "python.exe"
+    return str(venv) if venv.exists() else sys.executable
+
+
+def _spotrac_lookup_subprocess(name: str, league: str | None,
+                               sport: str | None) -> tuple[str | None, str | None]:
+    """spotrac_lookup, run in a FRESH python process.
+
+    A long-lived backend eventually starts failing Playwright's launch with a
+    false "Executable doesn't exist" (2026-07-10, 07-22, 08-19 — the exe is
+    present and untouched each time; root cause unknown). A fresh process has
+    never shown it, so on any in-process failure the same lookup is retried
+    once via ``python -m app.research`` (the __main__ block below).
+    """
+    proc = subprocess.run(
+        [_backend_python(), "-m", "app.research", name, league or "", sport or ""],
+        cwd=str(Path(__file__).resolve().parents[1]),
+        capture_output=True, text=True, encoding="utf-8", timeout=180,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or "").strip()[-400:]
+                           or f"subprocess exit {proc.returncode}")
+    data = json.loads(proc.stdout.strip().splitlines()[-1])
+    return data.get("text"), data.get("url")
+
+
 def gather_athlete_research(name: str | None, sport: str | None = None,
                             league: str | None = None) -> dict:
     """Collect public source text about the athlete. Never raises."""
@@ -188,6 +225,26 @@ def gather_athlete_research(name: str | None, sport: str | None = None,
     try:
         out["spotrac_text"], out["spotrac_url"] = spotrac_lookup(name, league, sport)
     except Exception as exc:  # noqa: BLE001 - research must never break extraction
-        logger.warning("Spotrac lookup failed for %s: %s", name, exc)
+        logger.warning("Spotrac lookup failed for %s: %s — retrying in a "
+                       "fresh process", name, exc)
+        try:
+            out["spotrac_text"], out["spotrac_url"] = _spotrac_lookup_subprocess(
+                name, league, sport)
+        except Exception as exc2:  # noqa: BLE001
+            logger.warning("Spotrac fresh-process lookup also failed for %s: %s",
+                           name, exc2)
 
     return out
+
+
+if __name__ == "__main__":
+    # Subprocess entry for _spotrac_lookup_subprocess:
+    #   python -m app.research <name> [league] [sport]
+    # Prints one JSON line {"text": ..., "url": ...} to stdout (forced UTF-8 —
+    # player pages carry accented names the Windows console codepage rejects).
+    sys.stdout.reconfigure(encoding="utf-8")
+    _name = sys.argv[1]
+    _league = sys.argv[2] if len(sys.argv) > 2 else ""
+    _sport = sys.argv[3] if len(sys.argv) > 3 else ""
+    _text, _url = spotrac_lookup(_name, _league or None, _sport or None)
+    print(json.dumps({"text": _text, "url": _url}))

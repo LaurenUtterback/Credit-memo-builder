@@ -514,8 +514,8 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
     return _dedupe_professional(html)
 
 
-def render_pdf(html: str, footer_text: str = _DEFAULT_FOOTER_TEXT,
-               page_numbers: bool = True) -> bytes:
+def _render_pdf_inprocess(html: str, footer_text: str,
+                          page_numbers: bool) -> bytes:
     """Render the memo HTML to PDF using headless Chromium via Playwright.
 
     Chromium's print engine honors the template's own ``@page`` rules and
@@ -524,41 +524,79 @@ def render_pdf(html: str, footer_text: str = _DEFAULT_FOOTER_TEXT,
     chromium``), so no system GTK/Pango/Cairo libraries are required — which is
     why this replaced WeasyPrint, whose native deps aren't available on Windows.
     """
-    try:
-        from playwright.sync_api import sync_playwright  # imported lazily; heavy dep
-    except ImportError as exc:
-        raise RuntimeError(
-            "PDF export needs Playwright. Install it with: "
-            "pip install playwright  then  python -m playwright install chromium"
-        ) from exc
+    from playwright.sync_api import sync_playwright  # imported lazily; heavy dep
 
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            try:
-                page = browser.new_page()
-                page.set_content(html, wait_until="load")
-                # Letter size with explicit margins so Chromium reserves the bottom
-                # margin for the native footer (display_header_footer). print_background
-                # keeps the navy/gold styling. The footer template carries the real
-                # "Page X of N" so numbering is always correct, and lives in the margin
-                # so it never prints over the body. Margins match the template's @page.
-                pdf = page.pdf(
-                    format="Letter",
-                    print_background=True,
-                    display_header_footer=True,
-                    header_template=_PDF_HEADER_TEMPLATE,
-                    footer_template=_pdf_footer_template(footer_text, page_numbers),
-                    margin={"top": "0.7in", "bottom": "0.6in", "left": "0.75in", "right": "0.75in"},
-                )
-            finally:
-                browser.close()
-    except Exception as exc:  # browser missing, launch failure, render error
-        raise RuntimeError(
-            f"PDF rendering failed: {exc}. If the browser is missing, install it "
-            "with: python -m playwright install chromium"
-        ) from exc
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.set_content(html, wait_until="load")
+            # Letter size with explicit margins so Chromium reserves the bottom
+            # margin for the native footer (display_header_footer). print_background
+            # keeps the navy/gold styling. The footer template carries the real
+            # "Page X of N" so numbering is always correct, and lives in the margin
+            # so it never prints over the body. Margins match the template's @page.
+            pdf = page.pdf(
+                format="Letter",
+                print_background=True,
+                display_header_footer=True,
+                header_template=_PDF_HEADER_TEMPLATE,
+                footer_template=_pdf_footer_template(footer_text, page_numbers),
+                margin={"top": "0.7in", "bottom": "0.6in", "left": "0.75in", "right": "0.75in"},
+            )
+        finally:
+            browser.close()
     return pdf
+
+
+def _render_pdf_subprocess(html: str, footer_text: str,
+                           page_numbers: bool) -> bytes:
+    """The same render, in a FRESH python process (the __main__ block below).
+
+    A long-lived backend eventually starts failing Playwright's launch with a
+    false "Executable doesn't exist" (2026-07-10, 07-22, 08-19 — the exe is
+    present and untouched each time; root cause unknown). A fresh process has
+    never shown it, so any in-process failure is retried once this way before
+    the user sees an error. Runs on the venv's python (the server itself may
+    be a re-exec'd child of base Python312, which has no playwright).
+    """
+    import subprocess
+    import tempfile
+
+    from .research import _backend_python
+
+    with tempfile.TemporaryDirectory() as td:
+        in_path = Path(td) / "in.html"
+        out_path = Path(td) / "out.pdf"
+        in_path.write_text(html, encoding="utf-8")
+        proc = subprocess.run(
+            [_backend_python(), "-m", "app.memo", str(in_path), str(out_path),
+             footer_text, "1" if page_numbers else "0"],
+            cwd=str(Path(__file__).resolve().parents[1]),
+            capture_output=True, text=True, encoding="utf-8", timeout=180,
+        )
+        if proc.returncode != 0 or not out_path.exists():
+            raise RuntimeError((proc.stderr or "").strip()[-400:]
+                               or f"subprocess exit {proc.returncode}")
+        return out_path.read_bytes()
+
+
+def render_pdf(html: str, footer_text: str = _DEFAULT_FOOTER_TEXT,
+               page_numbers: bool = True) -> bytes:
+    """Render to PDF in-process; on any failure retry once in a fresh process."""
+    try:
+        return _render_pdf_inprocess(html, footer_text, page_numbers)
+    except Exception as exc:  # browser missing, launch failure, render error
+        import logging
+        logging.getLogger(__name__).warning(
+            "In-process PDF render failed (%s) — retrying in a fresh process", exc)
+        try:
+            return _render_pdf_subprocess(html, footer_text, page_numbers)
+        except Exception as exc2:
+            raise RuntimeError(
+                f"PDF rendering failed: {exc2}. If the browser is missing, install it "
+                "with: python -m playwright install chromium"
+            ) from exc2
 
 
 _OFFICE_NS = (
@@ -664,3 +702,11 @@ def render_word(html: str, footer_text: str = _DEFAULT_FOOTER_TEXT) -> bytes:
         f"--{boundary}--\r\n"
     )
     return mhtml.encode("utf-8")
+if __name__ == "__main__":
+    # Subprocess entry for _render_pdf_subprocess:
+    #   python -m app.memo <in.html> <out.pdf> <footer_text> <1|0>
+    import sys as _sys
+    _in, _out, _footer, _nums = _sys.argv[1:5]
+    _pdf = _render_pdf_inprocess(Path(_in).read_text(encoding="utf-8"),
+                                 _footer, _nums == "1")
+    Path(_out).write_bytes(_pdf)
