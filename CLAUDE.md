@@ -210,6 +210,16 @@ All three uploaders share `build_client()` / `log_request_manifest()` /
 - **Errors**: a 5xx is reported as Anthropic-side, with the request ID and the
   advice to retry or split the upload — never as a bare status code. Locked by
   `tests/test_extraction_diagnostics.py`.
+- **Truncated replies are named, not dumped** (2026-08-20 — an 11-document
+  upload's reply outgrew the memo extraction's then-3,000-token response cap
+  and the UI showed the raw JSONDecodeError, "Unterminated string starting
+  at: line 155 ..."): every uploader parses the model's reply through
+  `extraction.parse_json_reply`, which reports a stop_reason of "max_tokens"
+  as "the reply was cut off ... extract fewer documents at once" instead of a
+  parse error. The memo extraction's response budget is 8,000 tokens and the
+  structure tab's (whose reply nests the full captured PFS) matches it; both
+  are sized well past the largest reply seen. Locked by
+  `tests/test_extraction_diagnostics.py`.
 - **Oversized uploads are shrunk, not refused** (Lauren, 2026-08-14 — hit on a
   real ~35 MB deal upload): the API hard-caps a request at ~32 MB encoded, and
   `check_request_size` sizes the request base64-on-the-wire BEFORE the call.

@@ -125,6 +125,24 @@ def wiki_lookup(name: str, sport: str | None) -> tuple[str | None, str | None]:
     return text[:_WIKI_MAX_CHARS], url
 
 
+def _read_player_page(page, name: str,
+                      slug: str | None) -> tuple[str, str] | None:
+    """(page_text, url) of the player page currently loaded, or None when the
+    URL's league segment says this is a different athlete than the borrower.
+
+    Player URLs are league-scoped (spotrac.com/<league>/player/...); when we
+    know the borrower's league, a mismatch means a same-surname stranger.
+    """
+    if slug and f"/{slug}/" not in page.url:
+        return None
+    text = page.inner_text("body")
+    # Skip the site chrome (nav / trending lists) at the top of the body; the
+    # player content starts at their name or the "Contract Details" tab strip.
+    lowered = text.lower()
+    start = max(lowered.find(name.lower()), lowered.find("contract details"))
+    return text[max(start, 0):][:_SPOTRAC_MAX_CHARS], page.url
+
+
 def spotrac_lookup(name: str, league: str | None,
                    sport: str | None) -> tuple[str | None, str | None]:
     """Return (page_text, page_url) for the athlete's Spotrac player page."""
@@ -142,6 +160,14 @@ def spotrac_lookup(name: str, league: str | None,
             page.goto(_SPOTRAC_SEARCH.format(query=name.replace(" ", "%20")),
                       wait_until="domcontentloaded", timeout=45000)
             page.wait_for_timeout(2500)
+            # A single-match search redirects STRAIGHT to the player page —
+            # no result links to click (seen 2026-08-20 on a real deal: the
+            # old link-hunt found nothing and the whole lookup silently
+            # returned None). Read the page we landed on.
+            if "/player/" in page.url:
+                got = _read_player_page(page, name, slug)
+                if got:
+                    return got
             candidates = page.eval_on_selector_all(
                 "a[href*='/player/']",
                 "els => els.map(e => ({href: e.href, text: (e.innerText || '').trim()}))",
@@ -158,18 +184,9 @@ def spotrac_lookup(name: str, league: str | None,
             for cand in ordered[:4]:
                 page.goto(cand["href"], wait_until="domcontentloaded", timeout=45000)
                 page.wait_for_timeout(2500)
-                # Player URLs are league-scoped (spotrac.com/<league>/player/...);
-                # when we know the borrower's league, a mismatch means this is a
-                # different athlete with the same surname — keep looking.
-                if slug and f"/{slug}/" not in page.url:
-                    continue
-                text = page.inner_text("body")
-                # Skip the site chrome (nav / trending lists) at the top of the
-                # body; the player content starts at their name or the
-                # "Contract Details" tab strip.
-                lowered = text.lower()
-                start = max(lowered.find(name.lower()), lowered.find("contract details"))
-                return text[max(start, 0):][:_SPOTRAC_MAX_CHARS], page.url
+                got = _read_player_page(page, name, slug)
+                if got:
+                    return got
         finally:
             browser.close()
     return None, None

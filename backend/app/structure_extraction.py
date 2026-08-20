@@ -504,7 +504,10 @@ def extract_documents(docs: list[UploadedDoc]) -> StructureExtraction:
     """Pull the structuring fields from uploaded deal documents, then run the
     PFS through the memo's debt-service handling and cross-check salary /
     team / league against Spotrac (both best-effort)."""
-    ex = StructureExtraction(**_ask_claude(docs, PROMPT, max_tokens=4000))
+    # 8000, not 4000: the structure reply nests the full captured PFS, so
+    # the same document-heavy deal that truncated the memo extraction on
+    # 2026-08-20 would truncate here too.
+    ex = StructureExtraction(**_ask_claude(docs, PROMPT, max_tokens=8000))
     _debt_service_from_pfs(ex)
     _verify_with_spotrac(ex)
     return ex

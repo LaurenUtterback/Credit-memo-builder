@@ -19,7 +19,7 @@ from .pa_models import PAExtraction
 from .doc_blocks import build_document_blocks
 from .extraction import (
     usage_token, build_client, create_with_retry, log_request_manifest,
-    check_request_size, describe_api_error,
+    check_request_size, describe_api_error, parse_json_reply,
     _OAUTH_BETA_HEADER, _CLAUDE_CODE_SYSTEM,
 )
 
@@ -94,15 +94,6 @@ def extract_documents(docs: list[UploadedDoc]) -> PAExtraction:
         logging.getLogger(__name__).error("PA extraction failed: %s", exc)
         raise RuntimeError(describe_api_error(exc, "extraction")) from exc
 
-    raw = "".join(block.text for block in message.content if block.type == "text")
-    clean = raw.strip()
-    if clean.startswith("```"):
-        clean = clean.split("\n", 1)[1] if "\n" in clean else clean
-        clean = clean.rsplit("```", 1)[0].strip()
-
-    try:
-        data = json.loads(clean)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Could not parse extraction response: {exc}") from exc
+    data = parse_json_reply(message, "extraction")
 
     return PAExtraction(**data)

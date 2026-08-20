@@ -172,3 +172,45 @@ def test_retries_are_configured_above_the_sdk_default():
     extraction.build_client(_FakeAnthropic(), "sk-ant-oat01-test")
     assert captured["max_retries"] == extraction._MAX_RETRIES
     assert captured["auth_token"] == "sk-ant-oat01-test"
+
+
+class _FakeBlock:
+    type = "text"
+
+    def __init__(self, text):
+        self.text = text
+
+
+class _FakeMessage:
+    """Stands in for the SDK's Message: text blocks plus a stop_reason."""
+
+    def __init__(self, text, stop_reason="end_turn"):
+        self.content = [_FakeBlock(text)]
+        self.stop_reason = stop_reason
+
+
+def test_parse_json_reply_strips_markdown_fences():
+    msg = _FakeMessage('```json\n{"borrower_name": "T"}\n```')
+    assert extraction.parse_json_reply(msg, "extraction") == {"borrower_name": "T"}
+
+
+def test_a_truncated_reply_is_explained_not_dumped_as_a_parse_error():
+    # 2026-08-20 incident: an 11-document upload's reply outgrew the response
+    # token budget, and the UI showed the raw JSONDecodeError ("Unterminated
+    # string starting at: line 155 column 28") with nothing to act on.
+    msg = _FakeMessage('{"borrower_name": "Jalen Two-Riv',
+                       stop_reason="max_tokens")
+    with pytest.raises(RuntimeError) as exc:
+        extraction.parse_json_reply(msg, "extraction")
+    assert "cut off" in str(exc.value)
+    assert "fewer documents" in str(exc.value)     # the one thing she can act on
+    assert "Unterminated" not in str(exc.value)
+
+
+def test_a_malformed_reply_still_reports_the_parse_error():
+    # Only truncation gets the special wording — genuine garbage keeps the
+    # underlying JSON error so it stays diagnosable.
+    msg = _FakeMessage("I cannot extract these documents.")
+    with pytest.raises(RuntimeError) as exc:
+        extraction.parse_json_reply(msg, "extraction")
+    assert "Could not parse extraction response" in str(exc.value)

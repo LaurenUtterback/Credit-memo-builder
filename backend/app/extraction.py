@@ -282,6 +282,33 @@ SPOTRAC ({url}):
 {text}"""
 
 
+def parse_json_reply(message, where: str) -> dict:
+    """Join the reply's text blocks, strip any markdown fences, and parse JSON.
+
+    A reply that was cut off at the response token limit (stop_reason
+    "max_tokens") is reported as exactly that, with something the user can act
+    on - not as the raw JSONDecodeError it causes. Seen 2026-08-20 on an
+    11-document upload whose reply outgrew the then-3,000-token cap and
+    surfaced in the UI as "Unterminated string starting at: line 155 ...".
+    """
+    raw = "".join(block.text for block in message.content if block.type == "text")
+    clean = raw.strip()
+    if clean.startswith("```"):
+        clean = clean.split("\n", 1)[1] if "\n" in clean else clean
+        clean = clean.rsplit("```", 1)[0].strip()
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError as exc:
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            raise RuntimeError(
+                f"The {where} reply was cut off before it finished (it hit the "
+                "response token limit). Retry the extraction; if it happens "
+                "again, extract fewer documents at once - the largest document "
+                "drives the longest replies."
+            ) from exc
+        raise RuntimeError(f"Could not parse extraction response: {exc}") from exc
+
+
 # Two figures this close are the same figure — Spotrac occasionally rounds a
 # prorated bonus/installment slightly differently than the contract states it.
 _MATCH_TOLERANCE_PCT = 0.1
@@ -452,7 +479,11 @@ def extract_documents(docs: list[UploadedDoc]) -> Extraction:
         message = create_with_retry(
             client, "extraction",
             model=EXTRACTION_MODEL,
-            max_tokens=3000,
+            # The reply must carry every PFS line item, debt-schedule row,
+            # repayment row and uses-of-funds line - a document-heavy deal
+            # outgrew 3,000 tokens on 2026-08-20 (truncated JSON), so the
+            # budget is sized well past the largest reply seen.
+            max_tokens=8000,
             system=_CLAUDE_CODE_SYSTEM,
             messages=[{"role": "user", "content": content}],
         )
@@ -465,16 +496,7 @@ def extract_documents(docs: list[UploadedDoc]) -> Extraction:
         logging.getLogger(__name__).error("Extraction failed: %s", exc)
         raise RuntimeError(describe_api_error(exc, "extraction")) from exc
 
-    raw = "".join(block.text for block in message.content if block.type == "text")
-    clean = raw.strip()
-    if clean.startswith("```"):
-        clean = clean.split("\n", 1)[1] if "\n" in clean else clean
-        clean = clean.rsplit("```", 1)[0].strip()
-
-    try:
-        data = json.loads(clean)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Could not parse extraction response: {exc}") from exc
+    data = parse_json_reply(message, "extraction")
 
     # Belt-and-suspenders: re-mask the SSN server-side regardless of model output.
     if data.get("ssn_masked"):
