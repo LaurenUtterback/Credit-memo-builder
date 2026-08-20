@@ -797,8 +797,31 @@ def calc_ltc(loan: float, guaranteed_salary: float) -> float:
 _REAL_ESTATE_RE = re.compile(r"real\s*estate|residence|property|home\b", re.I)
 _CREDIT_SCORE_RE = re.compile(
     r"(?:credit\s*score|fico|mid[\s-]*score|score)\D{0,20}\b([3-8]\d{2})\b", re.I)
-_NO_DEROG_RE = re.compile(r"no\s+(?:bankruptc|collection|judgment)", re.I)
-_DEROG_RE = re.compile(r"bankruptc\w*|collections?\b", re.I)
+# The Credit paragraph memo.py falls back to when extraction produced no
+# credit_notes. A sentinel, not just wording: the compliance checklist below
+# recognizes it and marks the derogatory-credit row N/A - an unreviewed report
+# must never be reported as clean (the old default asserted "No bankruptcies,
+# no judgments, no tax liens" whether or not anyone had looked).
+CREDIT_NOT_SUMMARIZED = (
+    "Credit report on file was not summarized at extraction - review it "
+    "manually for the score, payment history (late or missed payments on "
+    "auto loans, mortgages and credit cards), and derogatories.")
+
+# Derogatory-credit detection for the compliance checklist. Negated mentions
+# ("no late payments", "no late or missed payments", "without collections")
+# are stripped first, so a clean report described the way the extraction
+# prompt asks ("All tradelines report paid as agreed; no late payments.")
+# never reads as derogatory.
+_CREDIT_TERM = (
+    r"bankruptc\w*|collections?\b|judgments?\b|liens?\b|charge[- ]?offs?"
+    r"|repossess\w*|foreclos\w*|delinquen\w*|past[- ]?due\w*|derogator\w*"
+    r"|missed\s+payments?|lates?\b")
+_CLEAN_CREDIT_RE = re.compile(
+    r"\b(?:no|without|never|free of|zero)\b[\s\w,-]{0,40}?(?:" + _CREDIT_TERM + r")"
+    r"(?:\s*(?:,|/|or|and)\s*(?:" + _CREDIT_TERM + r"))*"
+    r"(?:\s+payments?)?",
+    re.I)
+_DEROG_RE = re.compile(_CREDIT_TERM, re.I)
 
 # Policy thresholds per South River Capital athlete-lending guidelines.
 LTC_MAX_PCT = 25.0
@@ -911,12 +934,17 @@ def calc_policy_compliance(ed, *, loan: float, ltc: float, guar_basis: float,
         add("Minimum credit score (mid)", f"&ge; {CREDIT_SCORE_MIN}",
             "Not stated — see credit report on file", "na")
     text = credit_text or ""
-    if _NO_DEROG_RE.search(text) or not _DEROG_RE.search(text):
-        add("No bankruptcies / collections", "Required",
-            "None noted on credit report", "pass")
-    else:
-        add("No bankruptcies / collections", "Required",
+    label = "No derogatories / late payments"
+    if not text.strip() or CREDIT_NOT_SUMMARIZED[:40] in text:
+        # No Credit paragraph, or the not-summarized fallback: nobody has
+        # reviewed the report, so the row is N/A - never silently passed.
+        add(label, "Required",
+            "Not summarized — review credit report on file", "na")
+    elif _DEROG_RE.search(_CLEAN_CREDIT_RE.sub(" ", text)):
+        add(label, "Required",
             "Derogatory item noted — see Credit paragraph", "exc")
+    else:
+        add(label, "Required", "None noted on credit report", "pass")
 
     # 15. Ongoing covenant in the loan documents (Section IV).
     add("No new contract debt w/o consent", "Ongoing",

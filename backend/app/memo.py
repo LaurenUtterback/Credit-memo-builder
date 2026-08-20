@@ -269,9 +269,10 @@ def _credit_text(ed: Extraction | None, as_of: date | None) -> str:
     and window, the "assuming payments were made as agreed" qualifier, and each
     maturity date — the way Lauren writes it by hand.
     """
+    # No credit_notes -> the not-summarized sentinel, never a clean-credit
+    # assertion nobody verified (the compliance checklist keys off it too).
     base = (ed.credit_notes if ed and ed.credit_notes
-            else "Credit report reviewed. No bankruptcies, no judgments, "
-                 "no tax liens on file.")
+            else calc.CREDIT_NOT_SUMMARIZED)
     rf = calc.calc_debt_rollforward(ed, as_of)
     if rf.get("note"):
         base = f"{base.rstrip()} {rf['note']}"

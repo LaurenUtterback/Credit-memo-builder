@@ -1027,10 +1027,93 @@ def test_compliance_reads_credit_score_from_credit_text(alvarado):
 def test_compliance_flags_derogatory_credit(alvarado):
     clean = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
                         credit_text="No bankruptcies, no judgments on file.")
-    assert _comp_row(clean, "No bankruptcies / collections")["status"] == "pass"
+    assert _comp_row(clean, "No derogatories / late payments")["status"] == "pass"
     derog = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
                         credit_text="Chapter 7 bankruptcy discharged 2024.")
-    assert _comp_row(derog, "No bankruptcies / collections")["status"] == "exc"
+    assert _comp_row(derog, "No derogatories / late payments")["status"] == "exc"
+
+
+def test_compliance_flags_late_payments(alvarado):
+    """Missed/late payments on tradelines are derogatory, not just BK/collections.
+
+    Before 2026-08-20 the checklist only scanned for bankruptcy/collections
+    keywords, so a credit report full of 30/60/90-day lates passed clean.
+    """
+    for text in (
+        "Score 705. Two 30-day late payments on the auto loan with Ally, "
+        "03/2025 and 06/2025; all other tradelines paid as agreed.",
+        "Mortgage with MidState Bank reported 60 days past due in 04/2026.",
+        "One credit card account delinquent as of the report date.",
+        "Score 710. Missed payments noted on the HELOC in 2025.",
+    ):
+        comp = _compliance(alvarado, 1_000_000, ALVARADO_SALARY, credit_text=text)
+        row = _comp_row(comp, "No derogatories / late payments")
+        assert row["status"] == "exc", text
+        assert any(e["label"] == row["label"] for e in comp["exceptions"])
+
+
+def test_compliance_clean_payment_history_is_not_derogatory(alvarado):
+    """Negated mentions must not flag — the prompt asks the model to state a
+    clean report as 'All tradelines report paid as agreed; no late payments.'"""
+    for text in (
+        "Score 748. All tradelines report paid as agreed; no late payments.",
+        "No bankruptcies, no collections, no late or missed payments on the "
+        "auto loans, mortgage, or credit cards.",
+        "Clean report: never late, without delinquencies, no past-due amounts.",
+    ):
+        comp = _compliance(alvarado, 1_000_000, ALVARADO_SALARY, credit_text=text)
+        assert _comp_row(comp, "No derogatories / late payments")["status"]             == "pass", text
+
+
+def test_compliance_unreviewed_credit_is_na_never_pass(alvarado):
+    """An unreviewed report is N/A: no Credit paragraph at all, and the
+    not-summarized fallback memo.py uses when extraction returned no
+    credit_notes (the old default asserted a clean report nobody checked)."""
+    for text in ("", calc.CREDIT_NOT_SUMMARIZED):
+        comp = _compliance(alvarado, 1_000_000, ALVARADO_SALARY, credit_text=text)
+        row = _comp_row(comp, "No derogatories / late payments")
+        assert row["status"] == "na"
+        assert "review credit report" in row["actual"]
+
+
+def test_memo_without_credit_notes_never_asserts_clean_credit(alvarado):
+    """Section IV must not claim 'No bankruptcies...' when extraction produced
+    no credit_notes — the memo now says the report was not summarized."""
+    alvarado.credit_notes = None
+    terms = DealTerms(name="José Alvarado", loan=1_000_000, rate=15,
+                      salary=9_000_000)
+    html = memo_service.render_html(terms, alvarado)
+    assert "No bankruptcies, no judgments, no tax liens on file" not in html
+    assert "not summarized at extraction" in html
+
+
+def test_prompt_requires_the_payment_history_review():
+    """The extraction prompt must instruct a per-tradeline payment-history
+    review of the credit report (auto loans, mortgages, credit cards)."""
+    from app.extraction import PROMPT
+    p = PROMPT.lower()
+    assert "credit_notes" in p
+    assert "payment-history" in p or "payment history" in p
+    assert "auto loan" in p and "mortgage" in p and "credit card" in p
+    assert "paid as agreed" in p
+    assert "return null" in p          # no report -> null, never "reviewed"
+
+
+def test_prompt_carries_the_no_pfs_credit_report_fallback():
+    """With no PFS uploaded, the debt schedule (Step 2b) must come from the
+    credit report's open tradelines, dated by the report's pull date.
+
+    Regression: the 2026-08-20 credit_notes rule routed all credit-report
+    content to the Credit paragraph, and a no-PFS deal's Step 2b went empty —
+    the model had been filling it from the credit report informally.
+    """
+    from app.extraction import PROMPT
+    p = PROMPT
+    assert "NO-PFS FALLBACK" in p
+    assert "OPEN tradelines" in p
+    assert "report/pull date as pfs_date" in p
+    # revolving lines must not be given an amortizing payment
+    assert "0 for revolving credit-card lines" in p
 
 
 def test_compliance_flags_negative_cash_flow():

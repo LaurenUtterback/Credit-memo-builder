@@ -178,8 +178,12 @@ never silently.
     guaranteed-earnings basis), combined LTV ≤ 80% (mortgage debt ÷ PFS real
     estate; N/A with no real estate), credit score ≥ 650 (parsed from the
     Credit paragraph; N/A when unstated — never silently passed), no
-    bankruptcies/collections (from the Credit paragraph), positive net cash
-    flow (Section VIII's bottom line). Structural requirements every deal
+    derogatories/late payments (from the Credit paragraph — since 2026-08-20
+    this catches late/missed payments, past-due amounts, delinquencies,
+    charge-offs, repossessions and foreclosures, not just bankruptcies and
+    collections; negated mentions like "no late payments" are stripped first
+    via `_CLEAN_CREDIT_RE`), positive net cash flow (Section VIII's bottom
+    line). Structural requirements every deal
     satisfies through the loan documents (payroll sweep, UCC-1, clean UCC
     search, personal guarantee, DDD insurance, work authorization, no-new-debt
     covenant) show as conditions of closing. Every "Exc." row is echoed in the
@@ -209,6 +213,37 @@ a text block labelled with the filename; .txt/.csv/.md/.json -> inlined text.
 Anything else (including legacy .doc/.xls) raises a RuntimeError NAMING THE FILE,
 which the routes turn into a 502 whose detail the UI shows — the user must always
 learn which document to convert. Locked by `tests/test_doc_blocks.py`.
+
+## The Credit paragraph (Section IV) and the credit report
+
+Since 2026-08-20 the extraction PROMPT requires `credit_notes` to summarize
+the uploaded credit report: the (mid) score, any bankruptcies / judgments /
+liens / collections / charge-offs / repossessions / foreclosures, and a
+PER-TRADELINE payment-history review — every auto loan, mortgage/HELOC and
+credit card checked for late or missed payments, each finding named with the
+creditor, how late, and when. A clean report must be stated affirmatively
+("All tradelines report paid as agreed; no late payments."). When NO credit
+report is uploaded, `credit_notes` is null and `_credit_text` (memo.py) falls
+back to `calc.CREDIT_NOT_SUMMARIZED` — an honest "review it manually" line,
+NEVER the old "Credit report reviewed. No bankruptcies..." default, which
+asserted a clean report nobody had checked. The compliance checklist keys off
+that sentinel and marks the derogatory row N/A. Locked by
+`test_compliance_flags_late_payments` and neighbors.
+
+## No-PFS deals: the credit report stands in
+
+When NO Personal Financial Statement is uploaded but a credit report is, the
+extraction PROMPT builds `debt_schedule` from the credit report's open
+tradelines (auto loans, mortgages/HELOCs, credit cards, student loans,
+installment notes; revolving cards get payment 0 — they don't amortize) and
+returns the report's pull date as `pfs_date`, the ONE exception to the
+"never the credit report date" rule — so Step 2b populates and the
+roll-forward ages the balances from the date they were true. The liabilities
+array is built from the same balances so each row's category matches a
+liability it sits inside. Added 2026-08-20 after a no-PFS deal's Step 2b went
+empty: the model had been filling it from the credit report informally, and
+the credit_notes rule (below) stopped that. Locked by
+`test_prompt_carries_the_no_pfs_credit_report_fallback`.
 
 ## When an extraction fails
 
