@@ -91,6 +91,13 @@ class StructureInputs(BaseModel):
     # form still carried (the same belt-and-suspenders as loandocs'
     # no_team_contract dropping the Payment Direction Letter in render_html).
     no_team_contract: bool = False
+    # A PROPOSED contract the athlete has on the table but has not executed
+    # (only read in no-team-contract mode). It sizes the loan — the LTC policy
+    # cap runs on this value, flagged for credit approval — and its expected
+    # signing date becomes the exit event. It is NEVER projected as income:
+    # nothing is contractually owed until the contract is signed.
+    proposed_contract_value: float = 0.0
+    proposed_contract_date: Optional[_date] = None
 
     # Timing
     cadence: Optional[LeagueCadence] = None      # None → league default

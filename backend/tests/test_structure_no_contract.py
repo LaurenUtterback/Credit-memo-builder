@@ -10,7 +10,7 @@ contract fields.
 from datetime import date
 
 from app import structure_summary
-from app.structure import propose_structures
+from app.structure import propose_structures, propose_terms
 from app.structure_models import BonusEvent, StructureInputs
 
 
@@ -63,6 +63,52 @@ def test_the_no_contract_note_is_surfaced():
 def test_with_a_contract_the_salary_still_counts():
     result = propose_structures(_inputs(no_team_contract=False))
     assert result.annual_gross == 1_240_000.0
+
+
+# --- the PROPOSED (unexecuted) contract ------------------------------------------
+
+def test_proposed_contract_sizes_the_loan_but_is_never_income():
+    inputs = _inputs(proposed_contract_value=2_000_000.0,
+                     proposed_contract_date=date(2027, 3, 15))
+    terms = propose_terms(inputs, contract_remaining=5_000_000.0)
+    # The LTC basis is the PROPOSED value — never the salary and never the
+    # (executed) contract-remaining argument, which no-contract deals lack.
+    assert terms.guaranteed_earnings_basis == 2_000_000.0
+    assert terms.policy_cap == 500_000.0                  # 25% LTC
+    assert any("PROPOSED" in w and "credit approval" in w for w in terms.warnings)
+    # ... and the projection still counts only the other income.
+    assert propose_structures(inputs).annual_gross == 240_000.0
+
+
+def test_without_a_proposed_value_only_the_cash_flow_ceiling_applies():
+    terms = propose_terms(_inputs())
+    assert terms.policy_cap == 0.0
+    assert terms.binding_constraint != "policy"
+    assert any("cash-flow ceiling" in w for w in terms.warnings)
+
+
+def test_expected_signing_becomes_the_exit_event():
+    result = propose_structures(_inputs(proposed_contract_date=date(2027, 3, 15)))
+    assert result.inputs_echo.expected_exit_date == date(2027, 3, 15)
+    assert result.inputs_echo.expected_exit_label == "proposed contract signing"
+    assert any("PROPOSED contract" in n for n in result.notes) is False  # no value entered
+
+
+def test_an_entered_exit_event_is_not_overwritten():
+    result = propose_structures(_inputs(
+        proposed_contract_date=date(2027, 3, 15),
+        expected_exit_date=date(2027, 6, 1),
+        expected_exit_label="sale of the Scottsdale property"))
+    assert result.inputs_echo.expected_exit_date == date(2027, 6, 1)
+    assert result.inputs_echo.expected_exit_label == "sale of the Scottsdale property"
+
+
+def test_the_proposed_contract_note_is_surfaced_with_the_value():
+    notes = " ".join(propose_structures(_inputs(
+        proposed_contract_value=2_000_000.0,
+        proposed_contract_date=date(2027, 3, 15))).notes)
+    assert "PROPOSED contract for $2,000,000" in notes
+    assert "never projected as income" in notes
 
 
 def test_summary_header_presents_the_no_contract_state():

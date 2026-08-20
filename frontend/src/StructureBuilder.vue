@@ -19,6 +19,7 @@ const inputs = reactive({
   salary: null, other_income: null, other_debt_annual: null,
   contract_end: '', salary_guaranteed: true,
   no_team_contract: false,
+  proposed_contract_value: null, proposed_contract_date: '',
   cadence: null,
   bonus_events: [],
   loan_amount: null, interest_rate: null, origination_fee_pct: null,
@@ -450,6 +451,8 @@ function payload() {
     // the salary), but sending it zeroed keeps every consumer consistent.
     salary: inputs.no_team_contract ? 0 : Number(inputs.salary) || 0,
     salary_guaranteed: inputs.no_team_contract ? false : inputs.salary_guaranteed,
+    proposed_contract_value: Number(inputs.proposed_contract_value) || 0,
+    proposed_contract_date: inputs.proposed_contract_date || null,
     other_income: Number(inputs.other_income) || 0,
     other_debt_annual: Number(inputs.other_debt_annual) || 0,
     loan_amount: Number(inputs.loan_amount) || 0,
@@ -494,7 +497,10 @@ async function proposeTerms() {
   proposing.value = true
   termsErr.value = ''
   try {
-    terms.value = await structureProposeTerms(payload(), Number(contractRemaining.value) || null)
+    // No-contract mode sizes against the proposed contract server-side; the
+    // (executed) contract-remaining figure must not leak in as an LTC basis.
+    const remaining = inputs.no_team_contract ? null : Number(contractRemaining.value) || null
+    terms.value = await structureProposeTerms(payload(), remaining)
   } catch (err) {
     termsErr.value = err.message
   }
@@ -603,7 +609,19 @@ function applyToLoanDocs() {
       and the dated payments in Step 4 only — no salary, no salary cadence. The
       contract fields below are ignored, and selecting a structure will carry this
       to the Loan Documents tab (which drops the Payment Direction Letter).
+      If a <strong>proposed contract</strong> is on the table, enter it here: it sizes
+      the loan (25% LTC, flagged for credit approval) and its signing becomes the
+      exit event — but nothing is projected as income until it is executed.
     </p>
+    <div v-if="inputs.no_team_contract" class="grid">
+      <label>Proposed contract — guaranteed value
+        <input v-model.number="inputs.proposed_contract_value" type="number"
+               placeholder="unexecuted — sizes the loan" />
+      </label>
+      <label>Expected signing date
+        <input v-model="inputs.proposed_contract_date" type="date" />
+      </label>
+    </div>
 
     <div class="grid">
       <label>Borrower <input v-model="inputs.borrower_name" /></label>
@@ -659,12 +677,15 @@ function applyToLoanDocs() {
       <label>Total remaining contract value
         <input v-model.number="contractRemaining" type="number" placeholder="LTC basis — else season salary" /></label>
     </div>
-    <button class="ghost" :disabled="proposing || inputs.no_team_contract" @click="proposeTerms">
-      {{ proposing ? 'Working…' : '✨ Propose terms from the contract' }}
+    <button class="ghost" :disabled="proposing" @click="proposeTerms">
+      {{ proposing ? 'Working…' : inputs.no_team_contract
+        ? '✨ Propose terms from the proposed contract' : '✨ Propose terms from the contract' }}
     </button>
     <p v-if="inputs.no_team_contract" class="hint">
-      Proposing terms needs a playing contract (the amount is capped against guaranteed
-      earnings) — with none, enter the loan amount below by hand.
+      No executed contract: the amount is capped at 25% LTC of the <strong>Proposed
+      contract value</strong> in Step 2 — flagged for credit approval — and checked
+      against the cash flow from other income. With no proposed value, only the
+      cash-flow ceiling applies.
     </p>
     <p v-if="termsErr" class="status err">⚠ {{ termsErr }}</p>
 

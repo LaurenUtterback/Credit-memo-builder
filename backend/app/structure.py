@@ -657,15 +657,29 @@ def _recommend(cands: list[StructureCandidate], inputs: StructureInputs) -> None
     max(cands, key=lambda c: c.min_cushion_coverage).recommended = True
 
 
+def _apply_no_contract(inputs: StructureInputs) -> StructureInputs:
+    """Enforce no-team-contract mode server-side, never trusting the form.
+
+    A stale salary left in a disabled field must not fund the projection —
+    other income and dated bonus payments are all the cash there is. A
+    PROPOSED (unexecuted) contract's expected signing date becomes the exit
+    event when none was entered: the deal is repaid by the signing, so the
+    bullet should mature just after it. The proposed VALUE is deliberately
+    not touched here — it sizes the loan in propose_terms and is never income.
+    """
+    if not inputs.no_team_contract:
+        return inputs
+    update: dict = {"salary": 0.0, "salary_guaranteed": False}
+    if inputs.proposed_contract_date and not inputs.expected_exit_date:
+        update["expected_exit_date"] = inputs.proposed_contract_date
+        if not inputs.expected_exit_label:
+            update["expected_exit_label"] = "proposed contract signing"
+    return inputs.model_copy(update=update)
+
+
 def propose_structures(inputs: StructureInputs) -> StructureResult:
     """Project the cash flow and score every candidate structure against it."""
-    if inputs.no_team_contract:
-        # No playing contract: enforced here rather than trusted to the form —
-        # a stale salary left in a disabled field must not fund the projection.
-        # Other income and dated bonus payments are all the cash there is,
-        # which is exactly what the candidate builders then see.
-        inputs = inputs.model_copy(update={"salary": 0.0,
-                                           "salary_guaranteed": False})
+    inputs = _apply_no_contract(inputs)
 
     cad = resolve_cadence(inputs)
     cash_flow = project_cash_flow(inputs, cad)
@@ -687,6 +701,13 @@ def propose_structures(inputs: StructureInputs) -> StructureResult:
         notes.append(
             "No team contract — the projection runs on other income and dated "
             "payments only; no salary or salary cadence is used.")
+        if inputs.proposed_contract_value:
+            when = (f", expected to sign {inputs.proposed_contract_date:%b %d, %Y}"
+                    if inputs.proposed_contract_date else "")
+            notes.append(
+                f"A PROPOSED contract for ${inputs.proposed_contract_value:,.0f} "
+                f"guaranteed is on the table{when} — unexecuted, so it sizes the "
+                f"loan and times the exit but is never projected as income.")
     if cad.notes and not inputs.no_team_contract:
         notes.append(f"{cad.league or 'Cadence'}: {cad.notes}")
     if not inputs.funding_date:
@@ -813,12 +834,31 @@ def propose_terms(inputs: StructureInputs,
     from .calculations import LTC_MAX_PCT
     from .structure_models import ProposedTerms
 
-    basis = contract_remaining or inputs.salary or 0.0
+    # No-team-contract mode: the same enforcement propose_structures applies
+    # (zeroed salary; a proposed contract's signing date as the exit event),
+    # and the LTC basis is the PROPOSED contract's guaranteed value — the only
+    # earnings figure such a deal has, flagged below for credit approval.
+    inputs = _apply_no_contract(inputs)
+    if inputs.no_team_contract:
+        basis = inputs.proposed_contract_value or 0.0
+    else:
+        basis = contract_remaining or inputs.salary or 0.0
     policy_cap = float(round(basis * LTC_MAX_PCT / 100.0, -3))
     capacity = max_supportable_loan(inputs, ceiling=max(policy_cap * 2, 1_000_000.0))
 
     warnings: list[str] = []
     event_driven = bool(inputs.expected_exit_date) or (inputs.salary or 0) <= 0
+    if inputs.no_team_contract:
+        if basis:
+            warnings.append(
+                f"Sized against a PROPOSED contract (${basis:,.0f} guaranteed) "
+                f"that is NOT yet executed — nothing is contractually owed until "
+                f"it is signed. Requires credit approval prior to funding.")
+        else:
+            warnings.append(
+                "No team contract and no proposed contract value entered — the "
+                "LTC policy has nothing to run on, so only the cash-flow ceiling "
+                "applies.")
 
     if capacity <= 0:
         amount = policy_cap if event_driven else 0.0
