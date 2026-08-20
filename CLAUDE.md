@@ -80,6 +80,24 @@ never silently.
     (`contract_remaining`), else the guaranteed season salary. Section I's
     "advance against $X in guaranteed salary" figure uses the same basis
     (Lauren, 2026-07-06). The cash flow still runs on the season salary.
+    CONFIRMED TERMS WIN (2026-08-18). Both the guaranteed salary and the
+    remaining contract value are deal-terms fields, resolved the same way as
+    every other term in `render_html` (`terms.x or ed.x`). Two defects were
+    fixed to make that true: `build_cash_flow` preferred the EXTRACTED salary,
+    so a corrected salary (or the "Use Spotrac figure" button) moved Section VII
+    while Section VIII silently kept the stale figure; and `contract_remaining`
+    had no field in Step 2 at all, so the LTC / "Guaranteed Remaining" basis
+    could not be changed from the UI. Step 2 now carries "Guaranteed remaining
+    (LTC basis)", pre-filled from the documents.
+    When a CONFIRMED remaining contract value differs from the contract asset
+    the PFS reports, Section IX restates that asset to the confirmed figure and
+    footnotes it ("restated from the $X reported ... to the $Y ... confirmed at
+    underwriting"), so Section IX can never report a contract asset that
+    contradicts Section VII. Pre-fill means the two agree on an ordinary deal
+    and nothing moves; only an explicit override marks the asset.
+    `calc.mark_contract_asset`, surfaced through `calc_balance_sheet`
+    (`assets_items` / `contract_mark`) so Total Assets and Net Worth run on the
+    restated figure.
 11. The memo must NOT contain the phrase "general business purposes".
 12. SSN/Tax ID is only ever stored/shown as the last 4 digits (XXX-XX-1234).
 13. Taxes are NEVER a PFS liability. Even when the PFS reports an estimated tax

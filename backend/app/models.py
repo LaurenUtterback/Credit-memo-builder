@@ -198,6 +198,9 @@ class DealTerms(BaseModel):
     rate: float = 0.0                 # annual % (e.g. 12 for 12%)
     fee: float = 0.0
     salary: float = 0.0               # guaranteed season salary (base + guaranteed annual bonuses)
+    contract_remaining: float = 0.0   # total remaining contract value — the LTC /
+                                      # "Guaranteed Remaining" basis (rule 10).
+                                      # Blank falls back to Extraction.contract_remaining.
     fund: Optional[date] = None       # funding date
     mat: Optional[date] = None        # maturity date
     loan_type: str = "New Loan"

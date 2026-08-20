@@ -598,8 +598,40 @@ def _apply_rollforward(liab_items: list[LineItem], rf: dict) -> list[LineItem]:
 
 # --- Balance sheet (PFS) ---------------------------------------------------
 
+# A PFS asset row carrying the contract's remaining value. Matched so a
+# remaining-contract value confirmed at underwriting can restate it (below).
+_CONTRACT_ASSET_RE = re.compile(r"contract", re.I)
+
+
+def mark_contract_asset(assets, contract_remaining: float):
+    """Restate the PFS "Contract (Remaining)" asset to the confirmed value.
+
+    The PFS reports the contract asset as of its own date. When the underwriter
+    confirms a DIFFERENT remaining contract value on the deal-terms form (a new
+    contract, or a stale statement), Section IX would otherwise report an asset
+    that contradicts Section VII's remaining-contract figure.
+
+    Only an explicit override marks the asset: the form is pre-filled from the
+    documents, so on an ordinary deal the two agree and nothing moves. Returns
+    ``(assets, mark)``; ``mark`` is None when nothing changed, else the reported
+    and restated figures for the Section IX footnote.
+    """
+    if not assets or not contract_remaining:
+        return assets, None
+    out, mark = [], None
+    for a in assets:
+        if mark is None and _CONTRACT_ASSET_RE.search(a.label or "")                 and a.amount and a.amount != contract_remaining:
+            mark = {"label": a.label, "reported": a.amount,
+                    "restated": contract_remaining}
+            out.append(LineItem(label=a.label, amount=contract_remaining))
+        else:
+            out.append(a)
+    return out, mark
+
+
 def calc_balance_sheet(ed: Optional[Extraction], facility_due: float,
-                       as_of: Optional[date] = None) -> dict:
+                       as_of: Optional[date] = None,
+                       contract_remaining: float = 0) -> dict:
     """Net Worth = Total Assets - Total Liabilities, where liabilities include
     the proposed facility at loan + interest.
 
@@ -612,7 +644,9 @@ def calc_balance_sheet(ed: Optional[Extraction], facility_due: float,
     older than it, the scheduled debts are rolled forward first (rule 15) so
     Total Liabilities and Net Worth run on the adjusted balances.
     """
-    assets_total = _sum(ed.assets if ed else None) or (ed.total_assets if ed else 0) or 0
+    assets, contract_mark = mark_contract_asset(
+        (ed.assets if ed else None), contract_remaining)
+    assets_total = _sum(assets) or (ed.total_assets if ed else 0) or 0
 
     liab_items = [
         l for l in (ed.liabilities if ed else [])
@@ -631,6 +665,8 @@ def calc_balance_sheet(ed: Optional[Extraction], facility_due: float,
     total_liab = stated_liab + (facility_due or 0)
     return {
         "assets_total": assets_total,
+        "assets_items": assets or [],
+        "contract_mark": contract_mark,
         "stated_liab": stated_liab,
         "reported_liab": reported_liab,
         "total_liab": total_liab,
@@ -687,7 +723,12 @@ def calc_uses_of_funds(uof, loan: float, fee_pct: float) -> dict:
 
 def build_cash_flow(ed: Optional[Extraction], amort: Optional[dict],
                     loan: float, form_salary: float) -> dict:
-    salary_income = (ed.salary if ed and ed.salary else 0) or (form_salary or 0)
+    # A salary confirmed on the deal-terms form WINS over the extracted figure,
+    # matching how every other confirmed term is resolved in memo.render_html
+    # (``terms.x or ed.x``). Before 2026-08-18 the extracted salary won here, so
+    # an underwriter who corrected the guaranteed salary (or clicked "Use
+    # Spotrac figure") moved Section VII but never this cash flow.
+    salary_income = (form_salary or 0) or (ed.salary if ed and ed.salary else 0)
     other_income = (ed.other_income if ed else 0) or 0
     income = salary_income + other_income
 

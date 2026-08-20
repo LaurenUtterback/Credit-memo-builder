@@ -209,12 +209,12 @@ def _orphan_debt_rows(rf: dict, liab_items: list) -> str:
 
 
 def _pfs_html(ed: Extraction | None, facility_due: float, salary: float,
-              as_of: date | None = None) -> str:
-    bs = calc.calc_balance_sheet(ed, facility_due, as_of)
+              as_of: date | None = None, contract_remaining: float = 0) -> str:
+    bs = calc.calc_balance_sheet(ed, facility_due, as_of, contract_remaining)
     rf = bs.get("rollforward") or {}
     out = []
     if ed and ed.total_assets:
-        for a in ed.assets:
+        for a in bs["assets_items"]:
             if a.amount:
                 out.append(f'<tr><td>{a.label}</td><td class="num-col">{_money(a.amount)}</td></tr>')
         out.append(f'<tr class="total"><td>Total Assets</td><td class="num-col">{_money(bs["assets_total"])}</td></tr>')
@@ -233,6 +233,15 @@ def _pfs_html(ed: Extraction | None, facility_due: float, salary: float,
                    f'<td class="num-col">{_money(bs["total_liab"])}</td></tr>')
         out.append(f'<tr class="grand"><td>Net Worth (Total Assets &minus; Total Liabilities)</td>'
                    f'<td class="num-col">{_signed(bs["net_worth"])}</td></tr>')
+        mark = bs.get("contract_mark")
+        if mark:
+            # Say on the statement that this asset is not the figure the PFS
+            # reports, the same way the roll-forward discloses the liabilities.
+            out.append(
+                f'<tr class="note"><td colspan="2"><em>{mark["label"]} is restated '
+                f'from the {_money(mark["reported"])} reported on the Personal '
+                f'Financial Statement to the {_money(mark["restated"])} remaining '
+                f'contract value confirmed at underwriting.</em></td></tr>')
         if rf.get("applied"):
             # Rule 15 — say on the statement itself that these are not the
             # figures the PFS reports, so no reader mistakes them for verbatim.
@@ -422,7 +431,13 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
     # earnings use the TOTAL REMAINING contract value when the documents
     # provide one (Lauren, 2026-07-06), falling back to the season salary.
     # The cash flow and Section VII stay on the season salary.
-    guar_basis = (ed.contract_remaining if ed and ed.contract_remaining else 0) or salary
+    # A remaining-contract value confirmed on the form wins over the extracted
+    # one (same ``terms.x or ed.x`` precedence as every other term above), so
+    # the underwriter can set the LTC basis when the documents are stale or
+    # a new contract supersedes them.
+    contract_remaining = (terms.contract_remaining
+                          or (ed.contract_remaining if ed else 0) or 0)
+    guar_basis = contract_remaining or salary
     ltc = calc.calc_ltc(loan, guar_basis)
     uof = calc.calc_uses_of_funds(ed.uses_of_funds if ed else None, loan, fee)
 
@@ -430,7 +445,7 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
     # balance sheet / cash flow / credit paragraph the memo body reports, so
     # the checklist can never disagree with the sections behind it.
     credit_text = _credit_text(ed, date.today())
-    bs = calc.calc_balance_sheet(ed, facility_due, date.today())
+    bs = calc.calc_balance_sheet(ed, facility_due, date.today(), contract_remaining)
     compliance = calc.calc_policy_compliance(
         ed, loan=loan, ltc=ltc, guar_basis=guar_basis, bs=bs, cf=cf,
         salary=salary, mat_fmt=_fmt_long(terms.mat),
@@ -487,8 +502,8 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "loan_money": _money(loan),
         "salary_money": _money(salary),
         "guar_basis_money": _money(guar_basis),
-        "contract_remaining_money": (_money(ed.contract_remaining)
-                                     if ed and ed.contract_remaining else ""),
+        "contract_remaining_money": (_money(contract_remaining)
+                                     if contract_remaining else ""),
         "interest_money": _money(amort_for_tpl["interest"]),
         "ltc": f"{ltc:.1f}",
         "sponsor_text": (ed.sponsorship_narrative if ed and ed.sponsorship_narrative
@@ -505,7 +520,8 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "contract_notes": ed.contract_notes if ed else "",
         "cf_html": _cf_rows_html(cf),
         "uses_html": _uses_of_funds_html(uof),
-        "pfs_html": _pfs_html(ed, facility_due, salary, date.today()),
+        "pfs_html": _pfs_html(ed, facility_due, salary, date.today(),
+                              contract_remaining),
         "repayment_html": _repayment_html(rep_rows, rep_totals),
         "doc_list_html": _doc_list_html(filenames),
     }
@@ -702,6 +718,8 @@ def render_word(html: str, footer_text: str = _DEFAULT_FOOTER_TEXT) -> bytes:
         f"--{boundary}--\r\n"
     )
     return mhtml.encode("utf-8")
+
+
 if __name__ == "__main__":
     # Subprocess entry for _render_pdf_subprocess:
     #   python -m app.memo <in.html> <out.pdf> <footer_text> <1|0>

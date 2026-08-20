@@ -352,6 +352,83 @@ def test_repayment_schedule_uses_documents_when_present(alvarado):
 
 # --- LTC -------------------------------------------------------------------
 
+def test_confirmed_salary_overrides_extracted_salary_in_cash_flow(alvarado):
+    """A salary corrected on the deal-terms form must reach the cash flow.
+
+    Regression: the extracted figure used to win here, so an underwriter who
+    changed the guaranteed salary saw Section VII move while Section VIII
+    silently kept the stale number.
+    """
+    cf = calc.build_cash_flow(alvarado, None, ALVARADO_LOAN, 13_500_000)
+    assert cf["salary_income"] == 13_500_000
+    assert cf["income"] == 13_500_000
+    assert cf["taxes"] == round(13_500_000 * 0.45)
+
+
+def test_extracted_salary_still_used_when_form_leaves_it_blank(alvarado):
+    cf = calc.build_cash_flow(alvarado, None, ALVARADO_LOAN, 0)
+    assert cf["salary_income"] == ALVARADO_SALARY
+
+
+def test_confirmed_contract_remaining_drives_ltc_and_section_vii(alvarado):
+    """The form's guaranteed-remaining value wins over the extracted one.
+
+    Every figure driven by the LTC basis must move together: the coversheet's
+    Guaranteed Remaining, the LTC itself, Section I's "advance against" line
+    and Section VII's Total Contract Remaining row.
+    """
+    alvarado.contract_remaining = 9_000_000
+    terms = DealTerms(name="José Alvarado", loan=3_425_000, rate=15,
+                      salary=13_500_000, contract_remaining=13_500_000)
+    html = memo_service.render_html(terms, alvarado)
+    assert "$13,500,000" in html
+    assert "$3,425,000 loan &divide; $13,500,000 guaranteed earnings" in html
+    # 3,425,000 / 13,500,000 = 25.4%
+    assert "25.4%" in html
+    assert "38.1%" not in html
+
+
+def test_extracted_contract_remaining_used_when_form_leaves_it_blank(alvarado):
+    alvarado.contract_remaining = 9_000_000
+    terms = DealTerms(name="José Alvarado", loan=3_425_000, rate=15,
+                      salary=9_000_000)
+    html = memo_service.render_html(terms, alvarado)
+    assert "$3,425,000 loan &divide; $9,000,000 guaranteed earnings" in html
+
+
+def test_pfs_contract_asset_marks_to_confirmed_remaining(alvarado):
+    """An explicitly confirmed remaining contract restates the PFS asset.
+
+    Section IX must not report a contract asset that contradicts Section VII.
+    """
+    bs = calc.calc_balance_sheet(alvarado, 0, None, 13_500_000)
+    assert bs["assets_total"] == 16_767_600      # 12,267,600 + 4,500,000
+    assert bs["contract_mark"]["reported"] == 9_000_000
+    assert bs["contract_mark"]["restated"] == 13_500_000
+
+
+def test_pfs_contract_asset_untouched_when_values_agree(alvarado):
+    """The ordinary deal: the form was pre-filled from the documents."""
+    bs = calc.calc_balance_sheet(alvarado, 0, None, 9_000_000)
+    assert bs["assets_total"] == 12_267_600
+    assert bs["contract_mark"] is None
+
+
+def test_pfs_contract_asset_untouched_when_not_confirmed(alvarado):
+    bs = calc.calc_balance_sheet(alvarado, 0, None, 0)
+    assert bs["assets_total"] == 12_267_600
+    assert bs["contract_mark"] is None
+
+
+def test_marked_contract_asset_is_disclosed_in_section_ix(alvarado):
+    alvarado.contract_remaining = 9_000_000
+    terms = DealTerms(name="José Alvarado", loan=3_425_000, rate=15,
+                      salary=9_000_000, contract_remaining=13_500_000)
+    html = memo_service.render_html(terms, alvarado)
+    assert "restated from the $9,000,000" in html
+    assert "confirmed at underwriting" in html
+
+
 def test_ltc_is_loan_over_guaranteed_earnings():
     assert calc.calc_ltc(2_499_000, 9_000_000) == pytest.approx(27.77, abs=0.01)
 

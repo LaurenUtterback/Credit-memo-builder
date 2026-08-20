@@ -35,7 +35,7 @@ const extraction = ref(null)
 const terms = reactive({
   name: '', dob: '', addr: '', phone: '', team: '', league: '', sport: '',
   ssn: '', dl: '', agent: '',
-  loan: null, rate: null, fee: null, salary: null,
+  loan: null, rate: null, fee: null, salary: null, contract_remaining: null,
   fund: '', mat: '', loan_type: 'New Loan',
 })
 
@@ -179,6 +179,9 @@ async function runExtract() {
       terms.salary = ed.salary_check.spotrac_salary
       salaryFromSpotrac = true
     }
+    if (ed.contract_remaining && !terms.contract_remaining) {
+      terms.contract_remaining = ed.contract_remaining
+    }
     if (ed.loan_amount && !terms.loan) terms.loan = ed.loan_amount
     if (ed.interest_rate_pct && !terms.rate) terms.rate = ed.interest_rate_pct
     if (ed.origination_fee_pct && !terms.fee) terms.fee = ed.origination_fee_pct
@@ -202,6 +205,7 @@ function buildTermsPayload() {
     rate: Number(terms.rate) || 0,
     fee: Number(terms.fee) || 0,
     salary: Number(terms.salary) || 0,
+    contract_remaining: Number(terms.contract_remaining) || 0,
     fund: terms.fund || null,
     mat: terms.mat || null,
   }
@@ -294,6 +298,11 @@ async function exportWord() {
                target="_blank" rel="noopener">view&nbsp;↗</a>
           </span>
           <span v-if="salaryVerify?.note" class="verify-note">{{ salaryVerify.note }}</span>
+        </label>
+        <label>Guaranteed remaining (LTC basis)
+          <input v-model.number="terms.contract_remaining" type="number" />
+          <span class="verify-note">Total remaining contract value — drives Guaranteed
+            Remaining, LTC and Section I. Leave blank to use the guaranteed salary.</span>
         </label>
         <label>Loan amount <input v-model.number="terms.loan" type="number" /></label>
         <label>Loan type
