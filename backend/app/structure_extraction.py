@@ -27,7 +27,7 @@ from .loandocs_extraction import _ask_claude, EXTRACTION_MODEL
 # usage-token auth as every other extractor.
 from .extraction import (
     build_salary_check, usage_token, build_client, create_with_retry,
-    _CLAUDE_CODE_SYSTEM,
+    parse_json_reply, _CLAUDE_CODE_SYSTEM,
 )
 from .research import spotrac_lookup
 
@@ -413,11 +413,7 @@ def _ask_spotrac(text: str, url: str | None, ex: StructureExtraction) -> dict:
             ),
         }],
     )
-    raw = "".join(b.text for b in message.content if b.type == "text").strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1] if "\n" in raw else raw
-        raw = raw.rsplit("```", 1)[0].strip()
-    return json.loads(raw)
+    return parse_json_reply(message, "structure Spotrac check")
 
 
 def _verify_with_spotrac(ex: StructureExtraction) -> None:

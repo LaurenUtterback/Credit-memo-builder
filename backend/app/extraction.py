@@ -299,6 +299,17 @@ def parse_json_reply(message, where: str) -> dict:
     try:
         return json.loads(clean)
     except json.JSONDecodeError as exc:
+        # The model sometimes wraps the JSON in prose ("Here is the ...: {...}"
+        # - seen 2026-08-25 on the salary cross-check, which failed with
+        # "Expecting value: line 1 column 1"). Parse the outermost {...} span
+        # before giving up; a still-broken payload falls through to the
+        # original error handling below.
+        start, end = clean.find("{"), clean.rfind("}")
+        if 0 <= start < end:
+            try:
+                return json.loads(clean[start:end + 1])
+            except json.JSONDecodeError:
+                pass
         if getattr(message, "stop_reason", None) == "max_tokens":
             raise RuntimeError(
                 f"The {where} reply was cut off before it finished (it hit the "
@@ -386,11 +397,7 @@ def _check_salary_against_spotrac(client, data: dict, research: dict) -> dict:
             ),
         }],
     )
-    raw = "".join(b.text for b in message.content if b.type == "text").strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1] if "\n" in raw else raw
-        raw = raw.rsplit("```", 1)[0].strip()
-    parsed = json.loads(raw)
+    parsed = parse_json_reply(message, "salary cross-check")
     return build_salary_check(
         doc_salary,
         float(parsed.get("spotrac_salary") or 0),
