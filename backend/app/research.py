@@ -207,11 +207,11 @@ def _spotrac_lookup_subprocess(name: str, league: str | None,
                                sport: str | None) -> tuple[str | None, str | None]:
     """spotrac_lookup, run in a FRESH python process.
 
-    A long-lived backend eventually starts failing Playwright's launch with a
-    false "Executable doesn't exist" (2026-07-10, 07-22, 08-19 — the exe is
-    present and untouched each time; root cause unknown). A fresh process has
-    never shown it, so on any in-process failure the same lookup is retried
-    once via ``python -m app.research`` (the __main__ block below).
+    Kept as belt-and-suspenders against Playwright launch failures. The
+    original trigger — a false "Executable doesn't exist" — was root-caused
+    2026-08-25 as MSIX filesystem virtualization hiding the browser install
+    from non-packaged processes; see memo._render_pdf_subprocess for the
+    story. Retried once via ``python -m app.research`` (__main__ below).
     """
     proc = subprocess.run(
         [_backend_python(), "-m", "app.research", name, league or "", sport or ""],

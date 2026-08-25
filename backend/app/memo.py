@@ -570,12 +570,18 @@ def _render_pdf_subprocess(html: str, footer_text: str,
                            page_numbers: bool) -> bytes:
     """The same render, in a FRESH python process (the __main__ block below).
 
-    A long-lived backend eventually starts failing Playwright's launch with a
-    false "Executable doesn't exist" (2026-07-10, 07-22, 08-19 — the exe is
-    present and untouched each time; root cause unknown). A fresh process has
-    never shown it, so any in-process failure is retried once this way before
-    the user sees an error. Runs on the venv's python (the server itself may
-    be a re-exec'd child of base Python312, which has no playwright).
+    Kept as belt-and-suspenders against Playwright launch failures. The
+    original trigger — a false "Executable doesn't exist" (2026-07-10, 07-22,
+    08-19, 08-25) — was ROOT-CAUSED on 2026-08-25: the browsers had been
+    installed from inside a packaged (MSIX) app, so Windows virtualized them
+    into that app's AppData sandbox, invisible to backends started at logon /
+    by the keep-alive task (and to their children, which is why this retry
+    could not help on 08-25). Fixed by copying them to the real
+    %LOCALAPPDATA%/ms-playwright from a non-packaged process. If the error
+    ever returns after a `playwright install`, check WHERE the install ran —
+    never install browsers from inside a packaged app. Runs on the venv's
+    python (the server itself may be a re-exec'd child of base Python312,
+    which has no playwright).
     """
     import subprocess
     import tempfile
