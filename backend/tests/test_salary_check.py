@@ -1,10 +1,15 @@
-"""The guaranteed-salary Spotrac cross-check (Step 2's verification line).
+"""The Spotrac salary / remaining-value check (Step 2's verification lines).
 
 The verdict shown next to the Guaranteed salary field is computed
 deterministically in build_salary_check, never by the model — these lock that
-in, along with the check being harmless when Spotrac is unreachable and the
-figure being verification-only (it lives on the Extraction model, never in
-the memo's numbers).
+in, along with the check being harmless when Spotrac is unreachable.
+
+Since 2026-08-25 (Lauren) Spotrac is the PRIMARY source for the memo's
+Guaranteed salary and Guaranteed remaining prefills (apply_spotrac_precedence),
+with the documents as the backup — decided on a deal whose uploaded contract
+package was stale and the extraction picked the prior season's salary row.
+The documents' figures stay on the check as the visible cross-check. The
+Structure tab still attaches this check for verification only.
 """
 
 from types import SimpleNamespace
@@ -62,6 +67,70 @@ def test_negative_or_none_inputs_are_clamped():
     assert check["spotrac_salary"] == 0
 
 
+def test_both_sources_ride_on_the_payload():
+    check = extraction.build_salary_check(
+        1_650_000, 2_350_000, None, "", doc_remaining=5_000_000,
+        spotrac_remaining=9_000_000)
+    assert check["doc_salary"] == 1_650_000
+    assert check["doc_remaining"] == 5_000_000
+    assert check["spotrac_remaining"] == 9_000_000
+    # Sources describe what FILLED the extraction fields; build_salary_check
+    # never decides that (apply_spotrac_precedence does, memo tab only).
+    assert "salary_source" not in check
+
+
+# --- Spotrac as the primary source (Lauren, 2026-08-25) ----------------------
+
+def test_spotrac_figures_fill_the_extraction_fields():
+    # The motivating shape: a stale contract package whose salary schedule
+    # led the extraction to the PRIOR season's row, while Spotrac carries the
+    # current season of the extension. Figures are synthetic.
+    data = {
+        "salary": 2_000_000, "contract_remaining": 2_000_000,
+        "salary_check": extraction.build_salary_check(
+            2_000_000, 18_500_000, None, "", doc_remaining=2_000_000,
+            spotrac_remaining=80_000_000),
+    }
+    extraction.apply_spotrac_precedence(data)
+    assert data["salary"] == 18_500_000
+    assert data["contract_remaining"] == 80_000_000
+    assert data["salary_check"]["salary_source"] == "spotrac"
+    assert data["salary_check"]["remaining_source"] == "spotrac"
+    # the documents' figures survive as the visible cross-check
+    assert data["salary_check"]["doc_salary"] == 2_000_000
+    assert data["salary_check"]["doc_remaining"] == 2_000_000
+
+
+def test_documents_are_the_backup_when_spotrac_gave_nothing():
+    data = {
+        "salary": 1_650_000, "contract_remaining": 5_000_000,
+        "salary_check": extraction.build_salary_check(
+            1_650_000, 0, None, "no page", doc_remaining=5_000_000),
+    }
+    extraction.apply_spotrac_precedence(data)
+    assert data["salary"] == 1_650_000
+    assert data["contract_remaining"] == 5_000_000
+    # a payload validated through the model reports the docs as the source
+    ed = Extraction(**data)
+    assert ed.salary_check.salary_source == "docs"
+    assert ed.salary_check.remaining_source == "docs"
+
+
+def test_precedence_is_per_field():
+    # Spotrac produced a season figure but no remaining value: the salary
+    # flips to Spotrac, the remaining stays on the documents.
+    data = {
+        "salary": 1_650_000, "contract_remaining": 5_000_000,
+        "salary_check": extraction.build_salary_check(
+            1_650_000, 1_700_000, None, "", doc_remaining=5_000_000),
+    }
+    extraction.apply_spotrac_precedence(data)
+    assert data["salary"] == 1_700_000
+    assert data["contract_remaining"] == 5_000_000
+    assert data["salary_check"]["salary_source"] == "spotrac"
+    assert data["salary_check"]["remaining_source"] == "docs"
+
+
 # --- the check itself --------------------------------------------------------
 
 class _FakeClient:
@@ -92,8 +161,8 @@ def test_no_spotrac_page_yields_a_manual_check_note_without_calling_claude():
 
 def test_spotrac_reply_is_parsed_and_compared():
     client = _FakeClient(
-        '```json\n{"spotrac_salary": 2350000, "season": "2026", '
-        '"note": "Base salary per Spotrac."}\n```')
+        '```json\n{"spotrac_salary": 2350000, "spotrac_remaining": 9000000, '
+        '"season": "2026", "note": "Base salary per Spotrac."}\n```')
     out = extraction._check_salary_against_spotrac(
         client,
         data={"borrower_name": "Test Player", "salary": 1_650_000,
@@ -103,6 +172,9 @@ def test_spotrac_reply_is_parsed_and_compared():
     )
     assert out["verdict"] == "mismatch"
     assert out["spotrac_salary"] == 2_350_000
+    assert out["spotrac_remaining"] == 9_000_000
+    assert out["doc_salary"] == 1_650_000
+    assert out["doc_remaining"] == 1_650_000
     assert out["season"] == "2026"
     assert out["spotrac_url"] == "https://www.spotrac.com/nfl/player/x"
     # the page text must actually be in the prompt that was sent
@@ -123,7 +195,17 @@ def test_prompt_template_formats_cleanly():
     text = extraction.SALARY_CHECK_PROMPT.format(
         who="A", today="2026-08-06", doc_salary="1", doc_remaining="2",
         url="u", text="t")
-    assert '{"spotrac_salary":0,"season":null,"note":null}' in text
+    assert ('{"spotrac_salary":0,"spotrac_remaining":0,"season":null,'
+            '"note":null}') in text
+
+
+def test_prompt_asks_for_the_remaining_contract_value():
+    # Lauren, 2026-08-25: Spotrac also supplies the Guaranteed remaining
+    # (LTC basis) — the prompt must read the total remaining value.
+    p = extraction.SALARY_CHECK_PROMPT
+    assert "spotrac_remaining" in p
+    assert "TOTAL REMAINING" in p
+    assert "Exclude seasons already completed" in p
 
 
 # --- the model contract ------------------------------------------------------

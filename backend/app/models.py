@@ -91,18 +91,32 @@ class DebtScheduleRow(BaseModel):
 
 
 class SalaryCheck(BaseModel):
-    """Spotrac cross-check of the guaranteed season salary (shown in Step 2).
+    """Spotrac read of the guaranteed season salary and remaining contract
+    value (shown in Step 2).
 
-    A verification aid, never an underwriting source of record: the executed
-    contract and its addenda stay authoritative, and this figure never reaches
-    the memo. ``spotrac_salary`` is Spotrac's CAP HIT for the season being
-    underwritten (base salary + prorated signing bonus + other counted
-    bonuses; never the base salary alone), with the guarantee detail carried
-    in ``note``. ``verdict`` is computed
-    server-side (extraction.build_salary_check), never by the model:
+    Since 2026-08-25 (Lauren) Spotrac is the PRIMARY source for the memo's
+    Guaranteed salary and Guaranteed remaining prefills; the documents are the
+    backup when Spotrac produced no figure, and their own figures are kept
+    here (``doc_salary`` / ``doc_remaining``) so Step 2 shows the executed
+    contract as the cross-check. ``spotrac_salary`` is Spotrac's CAP HIT for
+    the season being underwritten (base salary + prorated signing bonus +
+    other counted bonuses; never the base salary alone), with the guarantee
+    detail carried in ``note``. ``spotrac_remaining`` is the total remaining
+    contract value from that season forward. ``salary_source`` /
+    ``remaining_source`` record which source actually filled
+    Extraction.salary / Extraction.contract_remaining ("spotrac" | "docs" —
+    set by extraction.apply_spotrac_precedence; the Structure tab attaches
+    this check for verification only and leaves both at "docs").
+    ``verdict`` is computed server-side (extraction.build_salary_check),
+    never by the model:
     "match" | "mismatch" | "docs_only" | "spotrac_only" | "unavailable".
     """
     spotrac_salary: float = 0.0
+    spotrac_remaining: float = 0.0    # Spotrac's total remaining contract value
+    doc_salary: float = 0.0           # the documents' season salary (backup)
+    doc_remaining: float = 0.0        # the documents' remaining value (backup)
+    salary_source: str = "docs"       # which source filled Extraction.salary
+    remaining_source: str = "docs"    # which filled Extraction.contract_remaining
     season: Optional[str] = None      # the season the figure belongs to, e.g. "2026"
     spotrac_url: Optional[str] = None
     verdict: str = "unavailable"

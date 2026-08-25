@@ -88,7 +88,8 @@ never silently.
     while Section VIII silently kept the stale figure; and `contract_remaining`
     had no field in Step 2 at all, so the LTC / "Guaranteed Remaining" basis
     could not be changed from the UI. Step 2 now carries "Guaranteed remaining
-    (LTC basis)", pre-filled from the documents.
+    (LTC basis)", pre-filled from Spotrac since 2026-08-25 with the documents
+    as backup (see "Spotrac is PRIMARY" below).
     When a CONFIRMED remaining contract value differs from the contract asset
     the PFS reports, Section IX restates that asset to the confirmed figure and
     footnotes it ("restated from the $X reported ... to the $Y ... confirmed at
@@ -293,41 +294,51 @@ guaranteed-compensation-only salary (base + guaranteed annual bonuses),
 capturing every liability/expenditure line verbatim, auto-loan folding, and SSN
 redaction are load-bearing. Keep them consistent with the rules above.
 
-## Guaranteed-salary Spotrac cross-check (Step 2)
+## Spotrac is PRIMARY for Guaranteed salary & remaining (Step 2)
 
-The extracted guaranteed salary is settled from ALL uploaded documents (the
-prompt explicitly sweeps the contract's compensation paragraphs, separate
-guarantee addenda/riders/exhibits — which may guarantee only PART of the
-season salary — and term sheets; the executed contract governs on conflict)
-and is then cross-checked against the athlete's Spotrac page (Lauren,
-2026-08-06):
+SPOTRAC FIRST, CONTRACT AS BACKUP (Lauren, 2026-08-25 — decided on a deal
+whose uploaded contract package was stale and the extraction picked the prior
+season's salary row): the memo's Guaranteed salary and Guaranteed remaining
+(LTC basis) prefills come from the athlete's Spotrac page; the figures the
+documents produced are the backup, used when Spotrac gives nothing and always
+shown as the cross-check. The extraction prompt still settles the documents'
+salary from ALL uploaded documents (compensation paragraphs, guarantee
+addenda/riders/exhibits, term sheets; the executed contract governs on
+conflict) — that figure now rides on the check as `doc_salary` /
+`doc_remaining` instead of filling the fields when Spotrac produced a figure.
 
-- `research.py`'s existing Spotrac fetch is done ONCE per extraction and now
-  feeds two consumers: the Section V narrative and
+- `research.py`'s Spotrac fetch is done ONCE per extraction and feeds two
+  consumers: the Section V narrative and
   `extraction._check_salary_against_spotrac`, a third Claude call that reads
   the page for the season's CAP HIT (Lauren, 2026-08-06: base salary +
   prorated signing bonus + other bonuses Spotrac counts for the season —
   NEVER the base salary alone; with no cap hit on the page it composes base +
-  that season's bonuses). How much of the season Spotrac marks as GUARANTEED
-  is reported in the check's note, not netted out of the figure — so on
-  partially-guaranteed deals underwritten on the guaranteed basis, an amber
-  mismatch against the cap hit is EXPECTED and the note carries the
-  guaranteed portion.
+  that season's bonuses) and, since 2026-08-25, the TOTAL REMAINING contract
+  value (current/upcoming season + all future seasons; completed seasons
+  excluded). How much Spotrac marks as GUARANTEED is reported in the check's
+  note, not netted out of the figure.
+- `extraction.apply_spotrac_precedence` makes the swap after the check runs:
+  a non-zero Spotrac figure replaces `Extraction.salary` /
+  `Extraction.contract_remaining`, and `salary_source` / `remaining_source`
+  record which source filled each field (per-field — Spotrac can win one and
+  the documents the other). Rule 10's "confirmed terms win" is unchanged: a
+  value the underwriter types still beats every prefill.
 - The verdict ("match" | "mismatch" | "docs_only" | "spotrac_only" |
   "unavailable") is computed by `extraction.build_salary_check`
   (tolerance 0.1%, min $1), NEVER by the model. Carried on
   `Extraction.salary_check` (models.SalaryCheck). Locked by
   `tests/test_salary_check.py`.
-- UI-only, best-effort verification: it must never break /api/extract, and
-  the Spotrac figure NEVER reaches the memo's numbers — the documents stay
-  authoritative. The one exception is convenience prefill: when the documents
-  produce NO salary, the Step 2 field is filled from Spotrac, clearly labeled
-  in the status line and the field's verification line.
-- App.vue recomputes the verdict live against whatever is in the field
-  (`salaryVerify`, mirroring the same tolerance), shows ✓/⚠ + Spotrac's note
-  and a link under the Guaranteed salary input, and offers a
-  "Use Spotrac figure" button on mismatch — using it is the underwriter's
-  decision, the app only types the number.
+- Best-effort: neither the fetch nor the check may ever break /api/extract —
+  any failure leaves the documents' figures in place (the backup).
+- App.vue recomputes the verdict live against whatever is in each field
+  (`salaryVerify` / `remainingVerify`, mirroring the same tolerance), shows
+  ✓/⚠ + Spotrac's note and a link, and offers "Use Spotrac figure" when the
+  field diverges from Spotrac and "Use contract figure" when the Spotrac
+  prefill differs from the documents — either way the underwriter decides,
+  the app only types the number.
+- The STRUCTURE tab still treats the documents as primary: it attaches the
+  same check for verification lines only (structure_extraction never calls
+  apply_spotrac_precedence). Flip it there only if Lauren asks.
 
 ## Section V — Project Sponsorship research
 

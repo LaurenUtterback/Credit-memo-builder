@@ -17,9 +17,12 @@ After extraction, public research on the athlete (Wikipedia + Spotrac,
 gathered ONCE by research.py) feeds two more best-effort Claude calls: one
 composes the Section V (Project Sponsorship) narrative so the section
 describes the athlete, not just the facility (`_compose_sponsorship`), and
-one cross-checks the extracted guaranteed salary against the athlete's
-Spotrac page (`_check_salary_against_spotrac` — UI verification only, the
-documents stay authoritative).
+one reads the athlete's Spotrac page for the season cap hit and remaining
+contract value (`_check_salary_against_spotrac`). Since 2026-08-25 (Lauren)
+Spotrac is the PRIMARY source for the memo's Guaranteed salary / Guaranteed
+remaining prefills — `apply_spotrac_precedence` — with the documents as the
+backup and shown as the cross-check. Both steps stay best-effort: any failure
+leaves the documents' figures in place and never breaks /api/extract.
 """
 
 from __future__ import annotations
@@ -265,7 +268,7 @@ SOURCES:
 {sources}"""
 
 
-SALARY_CHECK_PROMPT = """You are a credit analyst at South River Capital verifying ONE figure for a credit memorandum: a professional athlete's compensation for the current/upcoming season, as Spotrac presents it.
+SALARY_CHECK_PROMPT = """You are a credit analyst at South River Capital reading TWO figures for a credit memorandum from Spotrac: a professional athlete's compensation for the current/upcoming season, and the total remaining value of the contract.
 
 Borrower: {who}
 Today's date: {today}
@@ -273,10 +276,11 @@ From the deal documents: guaranteed season salary ${doc_salary}; total remaining
 
 Below is the text of the athlete's Spotrac page. Using SPOTRAC ONLY (ignore the document figures above except to know which season is being underwritten), determine the athlete's compensation for the current/upcoming season as Spotrac's CAP HIT for that season. The cap hit is the base salary PLUS the prorated signing bonus and any roster, workout, or other bonus amounts Spotrac counts for that season — NEVER return the base salary alone when Spotrac lists a cap hit or those bonus components for the season. If the page shows no cap hit (a league or page without one), compose the closest equivalent: the season's base salary plus that season's bonus amounts as Spotrac lists them. Use only the season being underwritten — exclude other seasons, one-time or performance/incentive bonuses Spotrac does not count for the season, and endorsements.
 
-Return ONLY raw JSON, no markdown, no backticks: {{"spotrac_salary":0,"season":null,"note":null}}
+Return ONLY raw JSON, no markdown, no backticks: {{"spotrac_salary":0,"spotrac_remaining":0,"season":null,"note":null}}
 - spotrac_salary: that season cap hit (or composed equivalent) as a number. Return 0 if the page cannot support a figure (no contract data, contract expired, or the page describes a DIFFERENT person than the borrower — check name, sport, team).
-- season: the season/year the figure belongs to (e.g. "2026"), else null.
-- note: 1-2 short plain-text sentences an underwriter can read: the figure's composition as Spotrac shows it (base salary + prorated signing bonus + other bonuses), and how much of the season's compensation Spotrac marks as GUARANTEED — or why no figure could be determined. Never use markdown.
+- spotrac_remaining: the TOTAL REMAINING contract value — the current/upcoming season plus every future season, as Spotrac presents them (use Spotrac's own remaining/total figure when it covers exactly those seasons, otherwise sum the remaining seasons' amounts). Exclude seasons already completed. Return 0 if it cannot be determined.
+- season: the season/year the figures belong to (e.g. "2026"), else null.
+- note: 1-2 short plain-text sentences an underwriter can read: the figures' composition as Spotrac shows it (base salary + prorated signing bonus + other bonuses; which seasons make up the remaining value), and how much Spotrac marks as GUARANTEED — or why no figure could be determined. Never use markdown.
 
 SPOTRAC ({url}):
 {text}"""
@@ -327,12 +331,17 @@ _MATCH_TOLERANCE_PCT = 0.1
 
 def build_salary_check(doc_salary: float, spotrac_salary: float,
                        spotrac_url: str | None, note: str,
-                       season: str | None = None) -> dict:
+                       season: str | None = None, *,
+                       doc_remaining: float = 0.0,
+                       spotrac_remaining: float = 0.0) -> dict:
     """Assemble the SalaryCheck payload (models.SalaryCheck as a dict).
 
     The verdict is decided HERE, never by the model, so the UI's match/mismatch
     flag is deterministic: "match"/"mismatch" when both sources produced a
     figure, "spotrac_only"/"docs_only" when one did, "unavailable" when neither.
+    Both sources' figures ride on the payload; which one FILLS the extraction
+    fields is decided by apply_spotrac_precedence (the memo tab), not here —
+    the Structure tab uses this same payload for verification only.
     """
     doc_salary = max(float(doc_salary or 0), 0.0)
     spotrac_salary = max(float(spotrac_salary or 0), 0.0)
@@ -348,6 +357,9 @@ def build_salary_check(doc_salary: float, spotrac_salary: float,
         verdict = "unavailable"
     return {
         "spotrac_salary": spotrac_salary,
+        "spotrac_remaining": max(float(spotrac_remaining or 0), 0.0),
+        "doc_salary": doc_salary,
+        "doc_remaining": max(float(doc_remaining or 0), 0.0),
         "season": season,
         "spotrac_url": spotrac_url,
         "verdict": verdict,
@@ -355,23 +367,54 @@ def build_salary_check(doc_salary: float, spotrac_salary: float,
     }
 
 
+def apply_spotrac_precedence(data: dict) -> None:
+    """Make Spotrac the PRIMARY source for the guaranteed season salary and
+    the remaining contract value, with the documents as the backup (Lauren,
+    2026-08-25 — decided on a deal whose uploaded contract package was stale
+    and the extraction picked the prior season's salary row).
+
+    When the Spotrac check produced a figure it replaces the documents' value
+    in ``data`` (what prefills Step 2 and the memo); when it produced none,
+    the documents' figure stands. The check records which source filled each
+    field (salary_source / remaining_source) and keeps the documents' own
+    figures (doc_salary / doc_remaining) so the UI shows the executed
+    contract as the cross-check. The underwriter's typed value still wins —
+    rule 10's "confirmed terms win" is unchanged.
+    """
+    check = data.get("salary_check") or {}
+    if check.get("spotrac_salary"):
+        data["salary"] = check["spotrac_salary"]
+        check["salary_source"] = "spotrac"
+    else:
+        check["salary_source"] = "docs"
+    if check.get("spotrac_remaining"):
+        data["contract_remaining"] = check["spotrac_remaining"]
+        check["remaining_source"] = "spotrac"
+    else:
+        check["remaining_source"] = "docs"
+
+
 def _check_salary_against_spotrac(client, data: dict, research: dict) -> dict:
     """Third Claude call: read the Spotrac page for the season's CAP HIT
     (base salary + prorated signing bonus + other counted bonuses — Lauren's
-    choice 2026-08-06, never the base salary alone) and compare it with what
-    the documents produced. Guarantee detail is reported in the note.
+    choice 2026-08-06, never the base salary alone) and the total remaining
+    contract value, and compare them with what the documents produced.
+    Guarantee detail is reported in the note.
 
-    The documents stay authoritative — this only powers the verification line
-    under the Guaranteed salary field in Step 2 (and offers a figure when the
-    documents produced none). Returns a SalaryCheck-shaped dict.
+    Since 2026-08-25 the figures read here are the PRIMARY prefill for the
+    memo's Guaranteed salary / Guaranteed remaining (apply_spotrac_precedence);
+    the documents are the backup and stay on the check as the cross-check.
+    Returns a SalaryCheck-shaped dict.
     """
     doc_salary = float(data.get("salary") or 0)
+    doc_remaining = float(data.get("contract_remaining") or 0)
     text, url = research.get("spotrac_text"), research.get("spotrac_url")
     if not text:
         return build_salary_check(
             doc_salary, 0.0, url,
-            "Spotrac page could not be retrieved — verify the guaranteed salary "
-            "manually at spotrac.com.")
+            "Spotrac page could not be retrieved — the documents' figures were "
+            "used; verify the guaranteed salary manually at spotrac.com.",
+            doc_remaining=doc_remaining)
 
     who = ", ".join(
         str(part) for part in (
@@ -383,7 +426,7 @@ def _check_salary_against_spotrac(client, data: dict, research: dict) -> dict:
 
     message = client.messages.create(
         model=EXTRACTION_MODEL,
-        max_tokens=400,
+        max_tokens=500,
         system=_CLAUDE_CODE_SYSTEM,
         messages=[{
             "role": "user",
@@ -391,7 +434,7 @@ def _check_salary_against_spotrac(client, data: dict, research: dict) -> dict:
                 who=who or "(name not extracted)",
                 today=date.today().isoformat(),
                 doc_salary=f"{doc_salary:,.0f}",
-                doc_remaining=f"{float(data.get('contract_remaining') or 0):,.0f}",
+                doc_remaining=f"{doc_remaining:,.0f}",
                 url=url,
                 text=text,
             ),
@@ -404,6 +447,8 @@ def _check_salary_against_spotrac(client, data: dict, research: dict) -> dict:
         url,
         str(parsed.get("note") or "").strip(),
         str(parsed.get("season") or "").strip() or None,
+        doc_remaining=doc_remaining,
+        spotrac_remaining=float(parsed.get("spotrac_remaining") or 0),
     )
 
 
@@ -526,15 +571,18 @@ def extract_documents(docs: list[UploadedDoc]) -> Extraction:
     except Exception as exc:  # noqa: BLE001 - research must never break extraction
         logging.getLogger(__name__).warning("Sponsorship research failed: %s", exc)
 
-    # Spotrac cross-check of the guaranteed salary (UI verification line under
-    # the Step 2 field; the documents stay authoritative for underwriting).
+    # Spotrac read of the guaranteed salary and remaining contract value —
+    # the PRIMARY prefill for those two Step 2 fields since 2026-08-25, with
+    # the documents as the backup (and shown as the cross-check).
     try:
         data["salary_check"] = _check_salary_against_spotrac(client, data, research)
     except Exception as exc:  # noqa: BLE001 - research must never break extraction
         logging.getLogger(__name__).warning("Salary cross-check failed: %s", exc)
         data["salary_check"] = build_salary_check(
             data.get("salary") or 0, 0.0, research.get("spotrac_url"),
-            "The Spotrac cross-check could not be run — verify the guaranteed "
-            "salary manually at spotrac.com.")
+            "The Spotrac check could not be run — the documents' figures were "
+            "used; verify the guaranteed salary manually at spotrac.com.",
+            doc_remaining=data.get("contract_remaining") or 0)
+    apply_spotrac_precedence(data)
 
     return Extraction(**data)

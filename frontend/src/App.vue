@@ -94,31 +94,35 @@ const money = (n) => (n || n === 0)
 // --- derived ---------------------------------------------------------------
 const canGenerate = computed(() => terms.loan && terms.salary)
 
-// --- guaranteed-salary Spotrac cross-check ----------------------------------
-// The backend compared Spotrac against the DOCUMENTS' figure; here the verdict
-// is recomputed against whatever is in the field right now, so the line stays
-// truthful while the user edits. Tolerance mirrors extraction.build_salary_check
-// (0.1%, min $1). The documents stay authoritative — this is verification only.
+// --- Spotrac salary / remaining (primary source since 2026-08-25) -----------
+// Spotrac is the PRIMARY source for the Guaranteed salary and Guaranteed
+// remaining prefills (the backend applies that in apply_spotrac_precedence);
+// the documents are the backup and are shown here as the cross-check. The
+// verdict is recomputed against whatever is in the field right now, so the
+// line stays truthful while the user edits. Tolerance mirrors
+// extraction.build_salary_check (0.1%, min $1).
 const VERDICT_CLASS = {
   match: 'ok', mismatch: 'warn', spotrac_only: 'warn',
   docs_only: 'muted', unavailable: 'muted',
 }
+
+const sameFigure = (a, b) => Math.abs(a - b) <= Math.max(Math.max(a, b) * 0.001, 1)
 
 const salaryVerify = computed(() => {
   const c = extraction.value?.salary_check
   if (!c) return null
   const cur = Number(terms.salary) || 0
   const spo = Number(c.spotrac_salary) || 0
+  const doc = Number(c.doc_salary) || 0
   let verdict
   if (spo && cur) {
-    const tol = Math.max(Math.max(spo, cur) * 0.001, 1)
-    verdict = Math.abs(spo - cur) <= tol ? 'match' : 'mismatch'
+    verdict = sameFigure(spo, cur) ? 'match' : 'mismatch'
   } else if (spo) {
     verdict = 'spotrac_only'
   } else {
     verdict = c.verdict === 'unavailable' && !cur ? 'unavailable' : 'docs_only'
   }
-  return { ...c, verdict }
+  return { ...c, verdict, docsDiffer: !!(spo && doc && !sameFigure(spo, doc)) }
 })
 
 const salaryVerifyMsg = computed(() => {
@@ -126,16 +130,60 @@ const salaryVerifyMsg = computed(() => {
   if (!v) return ''
   const tag = v.season ? `Spotrac (${v.season} season)` : 'Spotrac'
   switch (v.verdict) {
-    case 'match': return `✓ Matches ${tag} cap hit: ${money(v.spotrac_salary)}`
-    case 'mismatch': return `⚠ ${tag} cap hit is ${money(v.spotrac_salary)} — verify against the executed contract.`
-    case 'spotrac_only': return `⚠ ${tag} cap hit is ${money(v.spotrac_salary)} — the documents produced no figure.`
-    case 'docs_only': return `${tag}: no usable figure — documents only.`
-    default: return 'Spotrac check could not be run — verify the salary manually.'
+    case 'match': return v.docsDiffer
+      ? `✓ From ${tag} cap hit ${money(v.spotrac_salary)} (primary) — the documents read ${money(v.doc_salary)}.`
+      : `✓ Matches ${tag} cap hit: ${money(v.spotrac_salary)}`
+    case 'mismatch': return `⚠ ${tag} cap hit is ${money(v.spotrac_salary)} — Spotrac is the primary source; the documents are the backup.`
+    case 'spotrac_only': return `✓ From ${tag} cap hit ${money(v.spotrac_salary)} — the documents produced no figure.`
+    case 'docs_only': return `${tag}: no usable figure — using the documents as backup.`
+    default: return 'Spotrac check could not be run — using the documents; verify the salary manually.'
   }
 })
 
 const showUseSpotrac = computed(() =>
   ['mismatch', 'spotrac_only'].includes(salaryVerify.value?.verdict))
+const showUseDocSalary = computed(() =>
+  salaryVerify.value?.verdict === 'match' && salaryVerify.value?.docsDiffer)
+
+// The same treatment for the Guaranteed remaining (LTC basis) field.
+const remainingVerify = computed(() => {
+  const c = extraction.value?.salary_check
+  if (!c) return null
+  const spo = Number(c.spotrac_remaining) || 0
+  const doc = Number(c.doc_remaining) || 0
+  if (!spo && !doc) return null
+  const cur = Number(terms.contract_remaining) || 0
+  let verdict
+  if (spo && cur) {
+    verdict = sameFigure(spo, cur) ? 'match' : 'mismatch'
+  } else if (spo) {
+    verdict = 'spotrac_only'
+  } else {
+    verdict = 'docs_only'
+  }
+  return {
+    spotrac_remaining: spo, doc_remaining: doc, verdict,
+    season: c.season, docsDiffer: !!(spo && doc && !sameFigure(spo, doc)),
+  }
+})
+
+const remainingVerifyMsg = computed(() => {
+  const v = remainingVerify.value
+  if (!v) return ''
+  switch (v.verdict) {
+    case 'match': return v.docsDiffer
+      ? `✓ From Spotrac: ${money(v.spotrac_remaining)} remaining (primary) — the documents read ${money(v.doc_remaining)}.`
+      : `✓ Matches Spotrac remaining value: ${money(v.spotrac_remaining)}`
+    case 'mismatch': return `⚠ Spotrac remaining value is ${money(v.spotrac_remaining)} — Spotrac is the primary source; the documents are the backup.`
+    case 'spotrac_only': return `✓ From Spotrac: ${money(v.spotrac_remaining)} remaining — the documents produced no figure.`
+    default: return 'Spotrac produced no remaining value — using the documents as backup.'
+  }
+})
+
+const showUseSpotracRemaining = computed(() =>
+  ['mismatch', 'spotrac_only'].includes(remainingVerify.value?.verdict))
+const showUseDocRemaining = computed(() =>
+  remainingVerify.value?.verdict === 'match' && remainingVerify.value?.docsDiffer)
 
 // --- handlers --------------------------------------------------------------
 function onFiles(e) {
@@ -169,16 +217,12 @@ async function runExtract() {
       dl: ed.drivers_license, agent: ed.agent,
     }
     for (const [k, v] of Object.entries(map)) if (v && !terms[k]) terms[k] = v
-    // Numeric deal terms pulled from the documents (term sheet): only fill blanks
-    // so a value the user already typed is never overwritten. The guaranteed
-    // salary prefers the documents; Spotrac fills it only when they gave nothing.
-    let salaryFromSpotrac = false
-    if (ed.salary && !terms.salary) {
-      terms.salary = ed.salary
-    } else if (!terms.salary && ed.salary_check?.spotrac_salary) {
-      terms.salary = ed.salary_check.spotrac_salary
-      salaryFromSpotrac = true
-    }
+    // Numeric deal terms: only fill blanks so a value the user already typed
+    // is never overwritten. The backend already made Spotrac the primary
+    // source for the guaranteed salary and remaining value (documents as
+    // backup — Lauren, 2026-08-25), so ed.salary / ed.contract_remaining
+    // carry the right figure whichever source produced it.
+    if (ed.salary && !terms.salary) terms.salary = ed.salary
     if (ed.contract_remaining && !terms.contract_remaining) {
       terms.contract_remaining = ed.contract_remaining
     }
@@ -186,9 +230,11 @@ async function runExtract() {
     if (ed.interest_rate_pct && !terms.rate) terms.rate = ed.interest_rate_pct
     if (ed.origination_fee_pct && !terms.fee) terms.fee = ed.origination_fee_pct
     await refreshRollforward()
+    const fromSpotrac = ed.salary_check?.salary_source === 'spotrac'
+      || ed.salary_check?.remaining_source === 'spotrac'
     status.type = 'ok'
-    status.msg = salaryFromSpotrac
-      ? '✓ Extracted — the documents showed no guaranteed salary, so it was filled from Spotrac; verify it against the executed contract'
+    status.msg = fromSpotrac
+      ? '✓ Extracted — guaranteed salary / remaining prefilled from Spotrac (primary source); the documents\' figures are shown beneath the fields as backup'
       : '✓ Extracted — confirm deal terms and generate'
   } catch (err) {
     status.type = 'err'
@@ -294,6 +340,8 @@ async function exportWord() {
             {{ salaryVerifyMsg }}
             <button v-if="showUseSpotrac" type="button" class="use"
                     @click="terms.salary = salaryVerify.spotrac_salary">Use Spotrac figure</button>
+            <button v-if="showUseDocSalary" type="button" class="use"
+                    @click="terms.salary = salaryVerify.doc_salary">Use contract figure</button>
             <a v-if="salaryVerify.spotrac_url" :href="salaryVerify.spotrac_url"
                target="_blank" rel="noopener">view&nbsp;↗</a>
           </span>
@@ -301,6 +349,13 @@ async function exportWord() {
         </label>
         <label>Guaranteed remaining (LTC basis)
           <input v-model.number="terms.contract_remaining" type="number" />
+          <span v-if="remainingVerify" :class="['verify', VERDICT_CLASS[remainingVerify.verdict]]">
+            {{ remainingVerifyMsg }}
+            <button v-if="showUseSpotracRemaining" type="button" class="use"
+                    @click="terms.contract_remaining = remainingVerify.spotrac_remaining">Use Spotrac figure</button>
+            <button v-if="showUseDocRemaining" type="button" class="use"
+                    @click="terms.contract_remaining = remainingVerify.doc_remaining">Use contract figure</button>
+          </span>
           <span class="verify-note">Total remaining contract value — drives Guaranteed
             Remaining, LTC and Section I. Leave blank to use the guaranteed salary.</span>
         </label>
