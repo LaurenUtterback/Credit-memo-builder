@@ -352,6 +352,17 @@ Research is best-effort: any failure keeps the document-derived
 `sponsorship_narrative` (and memo.py's one-line fallback below that). It must
 never make /api/extract fail.
 
+Playwright browser install — READ THIS before running `playwright install`:
+install the browsers from a PLAIN terminal (or a scheduled task), NEVER from
+inside an MSIX-packaged app (the Claude desktop app is one). A packaged
+process's writes to %LOCALAPPDATA% are silently virtualized into that app's
+sandbox (`AppData\Local\Packages\<pkg>\LocalCache\Local\...`), where only
+that app's own descendants can see them — every backend started at logon or by
+the keep-alive task then fails Playwright launches with a false "Executable
+doesn't exist", killing BOTH the Spotrac verification (the salary/team/league
+cross-checks) and PDF export. This bit four times (2026-07-10 → 08-25) before
+being root-caused; see `memo._render_pdf_subprocess`'s docstring for the story.
+
 ## Running locally
 
 Easiest: double-click **`Start Builder.bat`** in the repo root — it launches the
