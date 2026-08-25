@@ -77,7 +77,7 @@ table.compliance thead th{font-size:7pt;padding:2.5pt 5pt;}
 <tr><td class="k">Borrower</td><td>{{ name }}</td><td class="k">Guaranteed Remaining</td><td>{{ guar_basis_money }}</td></tr>
 <tr><td class="k">Team / League</td><td>{{ team }} — {{ league }}</td><td class="k">LTC</td><td>{{ ltc }}%</td></tr>
 <tr><td class="k">Loan</td><td>{{ loan_money }} at {{ rate }}% per annum</td><td class="k">Term</td><td>{{ months }}-month balloon — matures {{ mat_fmt }}</td></tr>
-<tr><td class="k">Collateral</td><td>Contract receivable (UCC-1) · personal guarantee · DDD policy</td><td class="k">Repayment</td><td>Payroll direct-deposit sweep; balloon at maturity</td></tr>
+<tr><td class="k">Collateral</td><td>Contract receivable (UCC-1) · personal guarantee · DDD policy</td><td class="k">Repayment</td><td>Balloon at maturity</td></tr>
 </tbody></table>
 <section class="section cover-sec"><h2 class="sec">Policy Compliance</h2>
 <table class="zebra compliance"><thead><tr><th>Criteria / Covenant</th><th style="width:78px">Requirement</th><th>Actual</th><th style="width:104px">Status</th></tr></thead><tbody>{{ compliance_html }}</tbody></table></section>

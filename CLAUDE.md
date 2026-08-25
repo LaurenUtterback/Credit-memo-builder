@@ -169,29 +169,26 @@ never silently.
 18. DEAL SUMMARY & POLICY COMPLIANCE COVERSHEET (added 2026-08-10, from
     Lauren's paper template). The memo's page 1 is an auto-filled coversheet:
     a deal-summary block (borrower, team/league, loan, term, collateral,
-    guaranteed remaining, repayment, LTC) and a 16-row policy checklist, each
+    guaranteed remaining, repayment, LTC) and a 9-row policy checklist, each
     row Pass / Exc. / N/A. `calc_policy_compliance` (calculations.py) computes
-    it from the SAME balance sheet / cash flow / credit paragraph the memo
-    body reports, so the coversheet can never disagree with the sections
-    behind it. Thresholds: LTC ≤ 30% (raised from 25% — Lauren, 2026-08-25), combined contract-note leverage ≤ 50%
-    ((loan + PFS contract-based notes, post roll-forward) ÷ the LTC's
-    guaranteed-earnings basis), combined LTV ≤ 80% (mortgage debt ÷ PFS real
-    estate; N/A with no real estate), credit score ≥ 650 (parsed from the
-    Credit paragraph; N/A when unstated — never silently passed), no
-    derogatories/late payments (from the Credit paragraph — since 2026-08-20
-    this catches late/missed payments, past-due amounts, delinquencies,
-    charge-offs, repossessions and foreclosures, not just bankruptcies and
-    collections; negated mentions like "no late payments" are stripped first
-    via `_CLEAN_CREDIT_RE`), positive net cash flow (Section VIII's bottom
-    line). Structural requirements every deal
-    satisfies through the loan documents (payroll sweep, UCC-1, clean UCC
-    search, personal guarantee, DDD insurance, work authorization, no-new-debt
-    covenant) show as conditions of closing. Every "Exc." row is echoed in the
-    Exceptions & Mitigants block with the standard mitigants and "requires
-    credit approval prior to funding"; a credit-approval signature line closes
-    the page. Rendered by `_compliance_rows_html` / `_exceptions_html`
-    (memo.py) into the coversheet page of memo.html.j2 (screen footers are now
-    "of 7"). Locked by the `test_compliance_*` tests.
+    it from the SAME LTC / cash flow figures the memo body reports, so the
+    coversheet can never disagree with the sections behind it. Quantitative
+    tests: LTC ≤ 30% (raised from 25% — Lauren, 2026-08-25) and positive net
+    cash flow (Section VIII's bottom line). Structural requirements every deal
+    satisfies through the loan documents (UCC-1, clean UCC search, personal
+    guarantee, DDD insurance, work authorization, no-new-debt covenant) show
+    as conditions of closing. RETIRED CRITERIA (Lauren, 2026-08-25): the
+    combined contract-note leverage, combined LTV, salary-fully-guaranteed,
+    payroll direct-deposit sweep, real-estate lien, minimum credit score, and
+    no-derogatories/late-payments rows were REMOVED from the coversheet, the
+    exceptions block, and the Deal Summary (whose Repayment cell now reads
+    just "Balloon at maturity") — do not re-add them without her direction
+    (locked by `test_compliance_omits_the_retired_criteria`). Every "Exc." row
+    is echoed in the Exceptions & Mitigants block with the standard mitigants
+    and "requires credit approval prior to funding"; a credit-approval
+    signature line closes the page. Rendered by `_compliance_rows_html` /
+    `_exceptions_html` (memo.py) into the coversheet page of memo.html.j2
+    (screen footers are now "of 7"). Locked by the `test_compliance_*` tests.
 
 The Alvarado reference deal: $12,267,600 assets, $10,373,361 total liabilities,
 $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.
@@ -226,9 +223,10 @@ creditor, how late, and when. A clean report must be stated affirmatively
 report is uploaded, `credit_notes` is null and `_credit_text` (memo.py) falls
 back to `calc.CREDIT_NOT_SUMMARIZED` — an honest "review it manually" line,
 NEVER the old "Credit report reviewed. No bankruptcies..." default, which
-asserted a clean report nobody had checked. The compliance checklist keys off
-that sentinel and marks the derogatory row N/A. Locked by
-`test_compliance_flags_late_payments` and neighbors.
+asserted a clean report nobody had checked. Locked by
+`test_memo_without_credit_notes_never_asserts_clean_credit`. (The coversheet's
+credit-score and derogatories rows, which used to key off this paragraph, were
+retired 2026-08-25 — see rule 18; the Credit paragraph itself is unchanged.)
 
 ## No-PFS deals: the credit report stands in
 

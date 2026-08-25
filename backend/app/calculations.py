@@ -794,40 +794,17 @@ def calc_ltc(loan: float, guaranteed_salary: float) -> float:
 
 # --- Deal Summary & Policy Compliance (memo coversheet) ---------------------
 
-_REAL_ESTATE_RE = re.compile(r"real\s*estate|residence|property|home\b", re.I)
-_CREDIT_SCORE_RE = re.compile(
-    r"(?:credit\s*score|fico|mid[\s-]*score|score)\D{0,20}\b([3-8]\d{2})\b", re.I)
 # The Credit paragraph memo.py falls back to when extraction produced no
-# credit_notes. A sentinel, not just wording: the compliance checklist below
-# recognizes it and marks the derogatory-credit row N/A - an unreviewed report
-# must never be reported as clean (the old default asserted "No bankruptcies,
-# no judgments, no tax liens" whether or not anyone had looked).
+# credit_notes - an unreviewed report must never be reported as clean (the
+# old default asserted "No bankruptcies, no judgments, no tax liens" whether
+# or not anyone had looked).
 CREDIT_NOT_SUMMARIZED = (
     "Credit report on file was not summarized at extraction - review it "
     "manually for the score, payment history (late or missed payments on "
     "auto loans, mortgages and credit cards), and derogatories.")
 
-# Derogatory-credit detection for the compliance checklist. Negated mentions
-# ("no late payments", "no late or missed payments", "without collections")
-# are stripped first, so a clean report described the way the extraction
-# prompt asks ("All tradelines report paid as agreed; no late payments.")
-# never reads as derogatory.
-_CREDIT_TERM = (
-    r"bankruptc\w*|collections?\b|judgments?\b|liens?\b|charge[- ]?offs?"
-    r"|repossess\w*|foreclos\w*|delinquen\w*|past[- ]?due\w*|derogator\w*"
-    r"|missed\s+payments?|lates?\b")
-_CLEAN_CREDIT_RE = re.compile(
-    r"\b(?:no|without|never|free of|zero)\b[\s\w,-]{0,40}?(?:" + _CREDIT_TERM + r")"
-    r"(?:\s*(?:,|/|or|and)\s*(?:" + _CREDIT_TERM + r"))*"
-    r"(?:\s+payments?)?",
-    re.I)
-_DEROG_RE = re.compile(_CREDIT_TERM, re.I)
-
 # Policy thresholds per South River Capital athlete-lending guidelines.
 LTC_MAX_PCT = 30.0   # raised from 25% (Lauren, 2026-08-25)
-LEVERAGE_MAX_PCT = 50.0
-LTV_MAX_PCT = 80.0
-CREDIT_SCORE_MIN = 650
 
 # The standing mitigants every SRC athlete loan carries; printed under any
 # exception so the approver signs off with the protections in view.
@@ -838,27 +815,29 @@ STANDARD_MITIGANTS = (
 )
 
 
-def calc_policy_compliance(ed, *, loan: float, ltc: float, guar_basis: float,
-                           bs: dict, cf: dict, salary: float,
-                           mat_fmt: str, has_maturity: bool,
-                           credit_text: str = "") -> dict:
+def calc_policy_compliance(*, ltc: float, cf: dict,
+                           mat_fmt: str, has_maturity: bool) -> dict:
     """Build the Deal Summary & Policy Compliance coversheet checklist.
 
     Each row is {label, req, actual, status} with status "pass" | "exc" | "na".
-    Quantitative tests (LTC, combined contract-note leverage, combined LTV,
-    net cash flow, credit score, derogatories) are COMPUTED from the same
-    figures the memo body reports, so the coversheet and the memo can never
-    disagree. Structural requirements every SRC deal satisfies through the
-    loan documents (payroll sweep, UCC-1, personal guarantee, DDD insurance,
-    no-new-debt covenant) show as conditions of closing. Items the documents
-    don't establish are marked N/A — never silently passed.
+    Quantitative tests (LTC, net cash flow) are COMPUTED from the same figures
+    the memo body reports, so the coversheet and the memo can never disagree.
+    Structural requirements every SRC deal satisfies through the loan
+    documents (UCC-1, clean UCC search, personal guarantee, DDD insurance,
+    work authorization, no-new-debt covenant) show as conditions of closing.
+
+    RETIRED CRITERIA (Lauren, 2026-08-25 — removed from the coversheet, the
+    exceptions block, and any compliance listing going forward): combined
+    contract-note leverage, combined LTV on the subject property, salary
+    fully guaranteed, payroll direct-deposit sweep, lien on real estate
+    recorded, minimum credit score, and no derogatories / late payments.
+    Do not re-add them without her direction.
 
     Every "exc" row is echoed in ``exceptions`` (with the standard mitigants),
     matching the sheet's rule that any exception requires credit approval
     prior to funding.
 
-    ``bs`` is calc_balance_sheet's output (liab_items are post roll-forward),
-    ``cf`` is build_cash_flow's.
+    ``cf`` is build_cash_flow's output.
     """
     rows: list[dict] = []
 
@@ -870,87 +849,27 @@ def calc_policy_compliance(ed, *, loan: float, ltc: float, guar_basis: float,
     add("Loan-to-Contract (LTC)", f"&le; {LTC_MAX_PCT:g}%", f"{ltc:.1f}%",
         "pass" if ltc <= LTC_MAX_PCT else "exc")
 
-    # 2. Combined leverage: proposed facility + existing contract-based notes
-    #    (PFS "Notes Payable: Contract Based", post roll-forward) over the same
-    #    guaranteed-earnings basis the LTC uses.
-    contract_notes = _sum([l for l in bs.get("liab_items", [])
-                           if _summary_category(_label(l)) == "notes_payable_contract"])
-    leverage = ((loan + contract_notes) / guar_basis * 100) if guar_basis else 0.0
-    add("Combined contract-note leverage", f"&le; {LEVERAGE_MAX_PCT:g}%",
-        f"{leverage:.1f}% ({_money0(loan + contract_notes)} ÷ {_money0(guar_basis)})",
-        "pass" if leverage <= LEVERAGE_MAX_PCT else "exc")
-
-    # 3. Combined LTV on the subject property: mortgage debt (post
-    #    roll-forward) over the real estate reported on the PFS. N/A when the
-    #    statement carries no real estate.
-    re_assets = _sum([a for a in (ed.assets if ed else [])
-                      if _REAL_ESTATE_RE.search(_label(a))])
-    mortgage = _sum([l for l in bs.get("liab_items", [])
-                     if _summary_category(_label(l)) == "mortgage_debt"])
-    if re_assets:
-        ltv = mortgage / re_assets * 100
-        add("Combined LTV — subject property", f"&le; {LTV_MAX_PCT:g}%",
-            f"{ltv:.1f}% ({_money0(mortgage)} ÷ {_money0(re_assets)})",
-            "pass" if ltv <= LTV_MAX_PCT else "exc")
-    else:
-        ltv = None
-        add("Combined LTV — subject property", f"&le; {LTV_MAX_PCT:g}%",
-            "No real estate reported on PFS", "na")
-
-    # 4-5. Underwriting basis and structure.
-    if salary:
-        add("Salary fully guaranteed", "Required",
-            f"{_money0(salary)} guaranteed season salary (underwriting basis)",
-            "pass")
-    else:
-        add("Salary fully guaranteed", "Required", "Not yet provided", "na")
+    # 2. Structure.
     add("Maturity within guaranteed term", "Required",
         f"Balloon at maturity {mat_fmt}" if has_maturity else "Maturity not set",
         "pass" if has_maturity else "na")
 
-    # 6-12. Structural requirements satisfied through the loan documents —
+    # 3-7. Structural requirements satisfied through the loan documents —
     # closing conditions of every SRC athlete loan, per Section II.
     for label, actual in (
-        ("Payroll direct-deposit sweep", "Condition of closing — account with Lender"),
         ("UCC-1 on contract receivable", "Condition of closing — first-lien filing"),
         ("Clean UCC search — no competing liens", "Pre-funding search — condition of closing"),
-        ("Lien on real estate recorded (if appl.)", None),
         ("Personal guarantee w/ conf. of judgment", "Condition of closing — full personal guarantee"),
         ("DDD insurance assigned to Lender", "Condition of closing — policy naming Lender"),
         ("US work authorization current", "Verified at closing — condition of closing"),
     ):
-        if actual is None:
-            add(label, "Required", "No real-estate collateral taken — contract loan", "na")
-        else:
-            add(label, "Required", actual, "pass")
+        add(label, "Required", actual, "pass")
 
-    # 13-14. Credit report items, read from the memo's own Credit paragraph.
-    m = _CREDIT_SCORE_RE.search(credit_text or "")
-    if m:
-        score = int(m.group(1))
-        add("Minimum credit score (mid)", f"&ge; {CREDIT_SCORE_MIN}", str(score),
-            "pass" if score >= CREDIT_SCORE_MIN else "exc")
-    else:
-        add("Minimum credit score (mid)", f"&ge; {CREDIT_SCORE_MIN}",
-            "Not stated — see credit report on file", "na")
-    text = credit_text or ""
-    label = "No derogatories / late payments"
-    if not text.strip() or CREDIT_NOT_SUMMARIZED[:40] in text:
-        # No Credit paragraph, or the not-summarized fallback: nobody has
-        # reviewed the report, so the row is N/A - never silently passed.
-        add(label, "Required",
-            "Not summarized — review credit report on file", "na")
-    elif _DEROG_RE.search(_CLEAN_CREDIT_RE.sub(" ", text)):
-        add(label, "Required",
-            "Derogatory item noted — see Credit paragraph", "exc")
-    else:
-        add(label, "Required", "None noted on credit report", "pass")
-
-    # 15. Ongoing covenant in the loan documents (Section IV).
+    # 8. Ongoing covenant in the loan documents (Section IV).
     add("No new contract debt w/o consent", "Ongoing",
         "Covenant in loan documents — quarterly credit pulls", "pass")
 
-    # 16. Net cash flow after debt service — Section VIII's bottom line.
+    # 9. Net cash flow after debt service — Section VIII's bottom line.
     net_cf = cf.get("net_cf", 0)
     add("Positive net cash flow after debt svc.", "Required",
         (f"{_money0(net_cf)}" if net_cf >= 0 else f"({_money0(abs(net_cf))})"),
@@ -959,7 +878,6 @@ def calc_policy_compliance(ed, *, loan: float, ltc: float, guar_basis: float,
     exceptions = [{"label": r["label"], "detail": f'{r["actual"]} vs. {r["req"]}'}
                   for r in rows if r["status"] == "exc"]
     return {"rows": rows, "exceptions": exceptions,
-            "leverage": leverage, "ltv": ltv,
             "mitigants": STANDARD_MITIGANTS}
 
 

@@ -970,15 +970,13 @@ def test_contract_remaining_row_absent_when_not_extracted():
 
 # --- Deal Summary & Policy Compliance coversheet ---------------------------
 
-def _compliance(ed, loan, salary, credit_text=""):
+def _compliance(ed, loan, salary):
     """Run the coversheet checklist the way render_html assembles its inputs."""
     guar = (ed.contract_remaining if ed and ed.contract_remaining else 0) or salary
-    bs = calc.calc_balance_sheet(ed, loan)
     cf = calc.build_cash_flow(ed, None, loan, salary)
     return calc.calc_policy_compliance(
-        ed, loan=loan, ltc=calc.calc_ltc(loan, guar), guar_basis=guar,
-        bs=bs, cf=cf, salary=salary, mat_fmt="January 1, 2027",
-        has_maturity=True, credit_text=credit_text,
+        ltc=calc.calc_ltc(loan, guar), cf=cf,
+        mat_fmt="January 1, 2027", has_maturity=True,
     )
 
 
@@ -986,24 +984,32 @@ def _comp_row(comp, label):
     return next(r for r in comp["rows"] if r["label"] == label)
 
 
-def test_compliance_flags_leverage_exception_and_passes_ltc_at_30(alvarado):
+# The checklist criteria Lauren retired 2026-08-25: they must not print on the
+# coversheet, in the exceptions block, or anywhere else in the memo.
+RETIRED_CRITERIA = (
+    "Combined contract-note leverage",
+    "Combined LTV — subject property",
+    "Salary fully guaranteed",
+    "Payroll direct-deposit sweep",
+    "Lien on real estate recorded (if appl.)",
+    "Minimum credit score (mid)",
+    "No derogatories / late payments",
+)
+
+
+def test_compliance_omits_the_retired_criteria(alvarado):
+    """Leverage/LTV/salary-guarantee/payroll-sweep/RE-lien/credit rows were
+    removed from the coversheet at Lauren's direction (2026-08-25). Alvarado
+    used to carry a combined-leverage exception; the deal is now clean."""
     comp = _compliance(alvarado, ALVARADO_LOAN, ALVARADO_SALARY)
+    labels = {r["label"] for r in comp["rows"]}
+    for retired in RETIRED_CRITERIA:
+        assert retired not in labels, retired
     # LTC 27.8% is WITHIN the 30% policy limit (raised from 25%, Lauren
-    # 2026-08-25); combined leverage (2,499,000 + 5,454,402 contract notes)
-    # / 9,000,000 = 88.4% > 50% stays an exception.
+    # 2026-08-25) and net cash flow is positive -> no exceptions remain.
     assert _comp_row(comp, "Loan-to-Contract (LTC)")["status"] == "pass"
-    lev = _comp_row(comp, "Combined contract-note leverage")
-    assert lev["status"] == "exc"
-    assert lev["actual"].startswith("88.4%")
-    # Combined LTV 1,912,110 / 3,228,000 = 59.2% passes.
-    ltv = _comp_row(comp, "Combined LTV — subject property")
-    assert ltv["status"] == "pass"
-    assert ltv["actual"].startswith("59.2%")
-    # Net cash flow is positive -> pass.
     assert _comp_row(comp, "Positive net cash flow after debt svc.")["status"] == "pass"
-    # Every exception is echoed in the Exceptions & Mitigants block.
-    assert {e["label"] for e in comp["exceptions"]} == {
-        "Combined contract-note leverage"}
+    assert comp["exceptions"] == []
 
 
 def test_compliance_ltc_over_30_is_still_an_exception():
@@ -1017,71 +1023,6 @@ def test_compliance_clean_deal_has_no_exceptions():
     comp = _compliance(Extraction(salary=10_000_000), 1_000_000, 10_000_000)
     assert comp["exceptions"] == []
     assert _comp_row(comp, "Loan-to-Contract (LTC)")["status"] == "pass"
-    # No real estate on the PFS -> LTV is N/A, never a silent pass/fail.
-    assert _comp_row(comp, "Combined LTV — subject property")["status"] == "na"
-
-
-def test_compliance_reads_credit_score_from_credit_text(alvarado):
-    good = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
-                       credit_text="Mid credit score 720. No bankruptcies.")
-    assert _comp_row(good, "Minimum credit score (mid)")["status"] == "pass"
-    low = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
-                      credit_text="Credit score of 590 reported.")
-    assert _comp_row(low, "Minimum credit score (mid)")["status"] == "exc"
-    unstated = _compliance(alvarado, 1_000_000, ALVARADO_SALARY)
-    assert _comp_row(unstated, "Minimum credit score (mid)")["status"] == "na"
-
-
-def test_compliance_flags_derogatory_credit(alvarado):
-    clean = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
-                        credit_text="No bankruptcies, no judgments on file.")
-    assert _comp_row(clean, "No derogatories / late payments")["status"] == "pass"
-    derog = _compliance(alvarado, 1_000_000, ALVARADO_SALARY,
-                        credit_text="Chapter 7 bankruptcy discharged 2024.")
-    assert _comp_row(derog, "No derogatories / late payments")["status"] == "exc"
-
-
-def test_compliance_flags_late_payments(alvarado):
-    """Missed/late payments on tradelines are derogatory, not just BK/collections.
-
-    Before 2026-08-20 the checklist only scanned for bankruptcy/collections
-    keywords, so a credit report full of 30/60/90-day lates passed clean.
-    """
-    for text in (
-        "Score 705. Two 30-day late payments on the auto loan with Ally, "
-        "03/2025 and 06/2025; all other tradelines paid as agreed.",
-        "Mortgage with MidState Bank reported 60 days past due in 04/2026.",
-        "One credit card account delinquent as of the report date.",
-        "Score 710. Missed payments noted on the HELOC in 2025.",
-    ):
-        comp = _compliance(alvarado, 1_000_000, ALVARADO_SALARY, credit_text=text)
-        row = _comp_row(comp, "No derogatories / late payments")
-        assert row["status"] == "exc", text
-        assert any(e["label"] == row["label"] for e in comp["exceptions"])
-
-
-def test_compliance_clean_payment_history_is_not_derogatory(alvarado):
-    """Negated mentions must not flag — the prompt asks the model to state a
-    clean report as 'All tradelines report paid as agreed; no late payments.'"""
-    for text in (
-        "Score 748. All tradelines report paid as agreed; no late payments.",
-        "No bankruptcies, no collections, no late or missed payments on the "
-        "auto loans, mortgage, or credit cards.",
-        "Clean report: never late, without delinquencies, no past-due amounts.",
-    ):
-        comp = _compliance(alvarado, 1_000_000, ALVARADO_SALARY, credit_text=text)
-        assert _comp_row(comp, "No derogatories / late payments")["status"]             == "pass", text
-
-
-def test_compliance_unreviewed_credit_is_na_never_pass(alvarado):
-    """An unreviewed report is N/A: no Credit paragraph at all, and the
-    not-summarized fallback memo.py uses when extraction returned no
-    credit_notes (the old default asserted a clean report nobody checked)."""
-    for text in ("", calc.CREDIT_NOT_SUMMARIZED):
-        comp = _compliance(alvarado, 1_000_000, ALVARADO_SALARY, credit_text=text)
-        row = _comp_row(comp, "No derogatories / late payments")
-        assert row["status"] == "na"
-        assert "review credit report" in row["actual"]
 
 
 def test_memo_without_credit_notes_never_asserts_clean_credit(alvarado):
@@ -1143,9 +1084,13 @@ def test_render_html_includes_compliance_coversheet(alvarado):
     assert "Loan-to-Contract (LTC)" in html
     assert "Exceptions &amp; Mitigants" in html
     assert "Credit Approval — Exceptions Acknowledged" in html
-    # Alvarado's LTC exception must appear in the exceptions block with the
-    # standard mitigants sentence.
-    assert "Mitigants:" in html
+    # Alvarado is clean under the current criteria (LTC 27.8% within 30%),
+    # so the exceptions block reads "None".
+    assert "all policy criteria are within guidelines" in html
+    # The retired criteria (Lauren, 2026-08-25) must not print on the
+    # checklist or anywhere else in the memo.
+    for retired in RETIRED_CRITERIA:
+        assert retired.replace("&", "&amp;") not in html, retired
     # The coversheet is page 1 and the memo body follows.
     assert html.index("Deal Summary &amp; Policy Compliance") < html.index("Credit Memorandum</h1>")
 

@@ -270,7 +270,7 @@ def _credit_text(ed: Extraction | None, as_of: date | None) -> str:
     maturity date — the way Lauren writes it by hand.
     """
     # No credit_notes -> the not-summarized sentinel, never a clean-credit
-    # assertion nobody verified (the compliance checklist keys off it too).
+    # assertion nobody verified.
     base = (ed.credit_notes if ed and ed.credit_notes
             else calc.CREDIT_NOT_SUMMARIZED)
     rf = calc.calc_debt_rollforward(ed, as_of)
@@ -443,14 +443,12 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
     uof = calc.calc_uses_of_funds(ed.uses_of_funds if ed else None, loan, fee)
 
     # Deal Summary & Policy Compliance coversheet (page 1). Runs on the same
-    # balance sheet / cash flow / credit paragraph the memo body reports, so
-    # the checklist can never disagree with the sections behind it.
+    # LTC / cash flow figures the memo body reports, so the checklist can
+    # never disagree with the sections behind it.
     credit_text = _credit_text(ed, date.today())
-    bs = calc.calc_balance_sheet(ed, facility_due, date.today(), contract_remaining)
     compliance = calc.calc_policy_compliance(
-        ed, loan=loan, ltc=ltc, guar_basis=guar_basis, bs=bs, cf=cf,
-        salary=salary, mat_fmt=_fmt_long(terms.mat),
-        has_maturity=bool(terms.mat), credit_text=credit_text,
+        ltc=ltc, cf=cf, mat_fmt=_fmt_long(terms.mat),
+        has_maturity=bool(terms.mat),
     )
 
     amort_for_tpl = amort or {"rows": [], "interest": 0, "balloon": 0, "months": 0}
