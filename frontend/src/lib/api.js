@@ -7,7 +7,17 @@ async function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result).split(',')[1])
-    reader.onerror = () => reject(new Error('Could not read file'))
+    // The browser holds a REFERENCE to the picked file, not a copy: the read
+    // fails here (before anything is uploaded) when the file changed on disk
+    // after it was added, or its source (network/cloud drive, an Outlook or
+    // zip temp file) is unreachable. Name the file so the user knows which
+    // document to fix.
+    reader.onerror = () => reject(new Error(
+      `Could not read "${file.name}" from disk. The file may have been ` +
+      'modified, moved, or sit on a disconnected network/cloud drive. ' +
+      'Remove it from the list and add it again — if it lives on a shared ' +
+      'or cloud drive, copy it to a local folder first.'
+    ))
     reader.readAsDataURL(file)
   })
 }
