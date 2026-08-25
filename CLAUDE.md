@@ -173,7 +173,7 @@ never silently.
     row Pass / Exc. / N/A. `calc_policy_compliance` (calculations.py) computes
     it from the SAME balance sheet / cash flow / credit paragraph the memo
     body reports, so the coversheet can never disagree with the sections
-    behind it. Thresholds: LTC ≤ 25%, combined contract-note leverage ≤ 50%
+    behind it. Thresholds: LTC ≤ 30% (raised from 25% — Lauren, 2026-08-25), combined contract-note leverage ≤ 50%
     ((loan + PFS contract-based notes, post roll-forward) ÷ the LTC's
     guaranteed-earnings basis), combined LTV ≤ 80% (mortgage debt ÷ PFS real
     estate; N/A with no real estate), credit score ≥ 650 (parsed from the
@@ -927,7 +927,7 @@ rather than being handed one — `structure.propose_terms()`, `POST
 
 The AMOUNT is the lower of two independent ceilings, and the binding one is
 named rather than implied:
-  * POLICY    — `calculations.LTC_MAX_PCT` (25%) on guaranteed earnings, the
+  * POLICY    — `calculations.LTC_MAX_PCT` (30%) on guaranteed earnings, the
                 same basis rule 10 uses: total remaining contract value when
                 known, else the guaranteed season salary.
   * CASH FLOW — `max_supportable_loan()`, a binary search for the largest loan

@@ -74,7 +74,7 @@ def test_proposed_contract_sizes_the_loan_but_is_never_income():
     # The LTC basis is the PROPOSED value — never the salary and never the
     # (executed) contract-remaining argument, which no-contract deals lack.
     assert terms.guaranteed_earnings_basis == 2_000_000.0
-    assert terms.policy_cap == 500_000.0                  # 25% LTC
+    assert terms.policy_cap == 600_000.0                  # 30% LTC
     assert any("PROPOSED" in w and "credit approval" in w for w in terms.warnings)
     # ... and the projection still counts only the other income.
     assert propose_structures(inputs).annual_gross == 240_000.0

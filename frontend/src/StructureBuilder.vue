@@ -610,7 +610,7 @@ function applyToLoanDocs() {
       contract fields below are ignored, and selecting a structure will carry this
       to the Loan Documents tab (which drops the Payment Direction Letter).
       If a <strong>proposed contract</strong> is on the table, enter it here: it sizes
-      the loan (25% LTC, flagged for credit approval) and its signing becomes the
+      the loan (30% LTC, flagged for credit approval) and its signing becomes the
       exit event — but nothing is projected as income until it is executed.
     </p>
     <div v-if="inputs.no_team_contract" class="grid">
@@ -682,7 +682,7 @@ function applyToLoanDocs() {
         ? '✨ Propose terms from the proposed contract' : '✨ Propose terms from the contract' }}
     </button>
     <p v-if="inputs.no_team_contract" class="hint">
-      No executed contract: the amount is capped at 25% LTC of the <strong>Proposed
+      No executed contract: the amount is capped at 30% LTC of the <strong>Proposed
       contract value</strong> in Step 2 — flagged for credit approval — and checked
       against the cash flow from other income. With no proposed value, only the
       cash-flow ceiling applies.

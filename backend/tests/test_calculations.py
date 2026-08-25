@@ -986,11 +986,12 @@ def _comp_row(comp, label):
     return next(r for r in comp["rows"] if r["label"] == label)
 
 
-def test_compliance_flags_ltc_and_leverage_exceptions(alvarado):
+def test_compliance_flags_leverage_exception_and_passes_ltc_at_30(alvarado):
     comp = _compliance(alvarado, ALVARADO_LOAN, ALVARADO_SALARY)
-    # LTC 27.8% > 25% and combined leverage (2,499,000 + 5,454,402 contract
-    # notes) / 9,000,000 = 88.4% > 50% are exceptions.
-    assert _comp_row(comp, "Loan-to-Contract (LTC)")["status"] == "exc"
+    # LTC 27.8% is WITHIN the 30% policy limit (raised from 25%, Lauren
+    # 2026-08-25); combined leverage (2,499,000 + 5,454,402 contract notes)
+    # / 9,000,000 = 88.4% > 50% stays an exception.
+    assert _comp_row(comp, "Loan-to-Contract (LTC)")["status"] == "pass"
     lev = _comp_row(comp, "Combined contract-note leverage")
     assert lev["status"] == "exc"
     assert lev["actual"].startswith("88.4%")
@@ -1002,7 +1003,14 @@ def test_compliance_flags_ltc_and_leverage_exceptions(alvarado):
     assert _comp_row(comp, "Positive net cash flow after debt svc.")["status"] == "pass"
     # Every exception is echoed in the Exceptions & Mitigants block.
     assert {e["label"] for e in comp["exceptions"]} == {
-        "Loan-to-Contract (LTC)", "Combined contract-note leverage"}
+        "Combined contract-note leverage"}
+
+
+def test_compliance_ltc_over_30_is_still_an_exception():
+    # 35% LTC: over even the raised limit -> exception, echoed in the block.
+    comp = _compliance(Extraction(salary=10_000_000), 3_500_000, 10_000_000)
+    assert _comp_row(comp, "Loan-to-Contract (LTC)")["status"] == "exc"
+    assert any(e["label"] == "Loan-to-Contract (LTC)" for e in comp["exceptions"])
 
 
 def test_compliance_clean_deal_has_no_exceptions():

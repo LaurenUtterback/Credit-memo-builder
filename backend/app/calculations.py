@@ -824,7 +824,7 @@ _CLEAN_CREDIT_RE = re.compile(
 _DEROG_RE = re.compile(_CREDIT_TERM, re.I)
 
 # Policy thresholds per South River Capital athlete-lending guidelines.
-LTC_MAX_PCT = 25.0
+LTC_MAX_PCT = 30.0   # raised from 25% (Lauren, 2026-08-25)
 LEVERAGE_MAX_PCT = 50.0
 LTV_MAX_PCT = 80.0
 CREDIT_SCORE_MIN = 650
