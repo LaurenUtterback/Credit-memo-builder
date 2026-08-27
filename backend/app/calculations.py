@@ -90,6 +90,20 @@ Underwriting rules encoded here
     schedules at all; an added debt must name the summary liability it rolls
     into (``category``) or its paydown has no total to come out of, which is
     reported as a warning rather than applied somewhere arbitrary.
+16. DDD INSURANCE FOLLOWS THE DISBURSEMENT (Lauren, 2026-08-26). The memo
+    claims the DDD (death, disability & disgrace) policy ONLY when the
+    documents' own disbursement breakdown carries the premium line (e.g.
+    "DDD insurance ($17,000)"). When the disbursement does not reflect DDD
+    insurance — or the documents carry no breakdown at all — the memo BODY's
+    mentions drop out (both Tertiary repayment-source cards, the Section II
+    insurance bullet, the Section III repayment cell, the injury FAQ's
+    assigned-policy bullet) and the mitigants sentence loses its insurance
+    clause. The Deal Summary & Policy Compliance coversheet KEEPS its
+    insurance line either way (same-day refinement): the checklist row reads
+    "None in place" (status N/A; reworded from "No Insurance" — Lauren,
+    2026-08-27) and the Collateral cell closes with "No Insurance" instead
+    of "DDD policy". ``has_ddd_insurance`` decides from the Uses-of-Funds
+    lines.
 """
 
 from __future__ import annotations
@@ -719,6 +733,26 @@ def calc_uses_of_funds(uof, loan: float, fee_pct: float) -> dict:
     }
 
 
+# Matches the DDD (death, disability & disgrace) premium however the settlement
+# labels it: "DDD insurance", "D.D.D. Insurance Premium",
+# "Death & Disgrace Insurance (Est)", "Disability insurance", ...
+_DDD_RE = re.compile(r"\bddd\b|d\.\s*d\.\s*d|death|disab|disgrace", re.I)
+
+
+def has_ddd_insurance(uof) -> bool:
+    """Whether the deal carries a DDD policy — decided by the documents (rule 16).
+
+    The premium shows up as a line in the disbursement breakdown (either side
+    of the to-Borrower subtotal). When no line matches — or the documents carry
+    no breakdown at all — the deal has no policy and the memo/coversheet must
+    not claim one. ``uof`` is a UsesOfFunds (or None).
+    """
+    if not uof:
+        return False
+    return any(_DDD_RE.search(_label(item))
+               for item in list(uof.deductions or []) + list(uof.additional_costs or []))
+
+
 # --- Cash flow (Guarantor Analysis) ---------------------------------------
 
 def build_cash_flow(ed: Optional[Extraction], amort: Optional[dict],
@@ -813,10 +847,18 @@ STANDARD_MITIGANTS = (
     "contract receivable, full personal guarantee with confession of "
     "judgment, and DDD insurance assigned to Lender"
 )
+# The same mitigants on a deal without a DDD policy (rule 16 — the documents'
+# disbursement carries no premium line): the insurance clause drops out.
+STANDARD_MITIGANTS_NO_DDD = (
+    "payroll direct-deposit sweep at the source, UCC-1 first-lien on the "
+    "contract receivable, and full personal guarantee with confession of "
+    "judgment"
+)
 
 
 def calc_policy_compliance(*, ltc: float, cf: dict,
-                           mat_fmt: str, has_maturity: bool) -> dict:
+                           mat_fmt: str, has_maturity: bool,
+                           has_ddd: bool = True) -> dict:
     """Build the Deal Summary & Policy Compliance coversheet checklist.
 
     Each row is {label, req, actual, status} with status "pass" | "exc" | "na".
@@ -825,6 +867,12 @@ def calc_policy_compliance(*, ltc: float, cf: dict,
     Structural requirements every SRC deal satisfies through the loan
     documents (UCC-1, clean UCC search, personal guarantee, DDD insurance,
     work authorization, no-new-debt covenant) show as conditions of closing.
+
+    ``has_ddd`` follows the documents' disbursement (rule 16 —
+    has_ddd_insurance). The "DDD insurance assigned to Lender" row always
+    prints (Lauren, 2026-08-26); when False its Actual reads "None in place"
+    with status N/A, and the mitigants sentence loses its insurance clause,
+    so the coversheet never claims a policy the deal does not carry.
 
     RETIRED CRITERIA (Lauren, 2026-08-25 — removed from the coversheet, the
     exceptions block, and any compliance listing going forward): combined
@@ -860,10 +908,22 @@ def calc_policy_compliance(*, ltc: float, cf: dict,
         ("UCC-1 on contract receivable", "Condition of closing — first-lien filing"),
         ("Clean UCC search — no competing liens", "Pre-funding search — condition of closing"),
         ("Personal guarantee w/ conf. of judgment", "Condition of closing — full personal guarantee"),
-        ("DDD insurance assigned to Lender", "Condition of closing — policy naming Lender"),
-        ("US work authorization current", "Verified at closing — condition of closing"),
     ):
         add(label, "Required", actual, "pass")
+
+    # The DDD row ALWAYS prints (Lauren, 2026-08-26); what it reports follows
+    # the documents' disbursement (rule 16): the policy as a condition of
+    # closing when the premium line is there, "None in place" (N/A) when not
+    # (reworded from "No Insurance" — Lauren, 2026-08-27).
+    if has_ddd:
+        add("DDD insurance assigned to Lender", "Required",
+            "Condition of closing — policy naming Lender", "pass")
+    else:
+        add("DDD insurance assigned to Lender", "Required",
+            "None in place", "na")
+
+    add("US work authorization current", "Required",
+        "Verified at closing — condition of closing", "pass")
 
     # 8. Ongoing covenant in the loan documents (Section IV).
     add("No new contract debt w/o consent", "Ongoing",
@@ -878,7 +938,8 @@ def calc_policy_compliance(*, ltc: float, cf: dict,
     exceptions = [{"label": r["label"], "detail": f'{r["actual"]} vs. {r["req"]}'}
                   for r in rows if r["status"] == "exc"]
     return {"rows": rows, "exceptions": exceptions,
-            "mitigants": STANDARD_MITIGANTS}
+            "mitigants": (STANDARD_MITIGANTS if has_ddd
+                          else STANDARD_MITIGANTS_NO_DDD)}
 
 
 # --- SSN masking -----------------------------------------------------------

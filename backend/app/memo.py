@@ -441,6 +441,12 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
     guar_basis = contract_remaining or salary
     ltc = calc.calc_ltc(loan, guar_basis)
     uof = calc.calc_uses_of_funds(ed.uses_of_funds if ed else None, loan, fee)
+    # Rule 16: the memo claims a DDD policy ONLY when the documents' own
+    # disbursement carries the premium line. When it doesn't, every DDD
+    # mention drops out — coversheet row/collateral, mitigants, both Tertiary
+    # repayment-source cards, the Section II bullet, Section III's repayment
+    # cell, and the injury FAQ's assigned-policy bullet.
+    has_ddd = calc.has_ddd_insurance(ed.uses_of_funds if ed else None)
 
     # Deal Summary & Policy Compliance coversheet (page 1). Runs on the same
     # LTC / cash flow figures the memo body reports, so the checklist can
@@ -448,7 +454,7 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
     credit_text = _credit_text(ed, date.today())
     compliance = calc.calc_policy_compliance(
         ltc=ltc, cf=cf, mat_fmt=_fmt_long(terms.mat),
-        has_maturity=bool(terms.mat),
+        has_maturity=bool(terms.mat), has_ddd=has_ddd,
     )
 
     amort_for_tpl = amort or {"rows": [], "interest": 0, "balloon": 0, "months": 0}
@@ -514,6 +520,7 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "credit_text": credit_text,
         "compliance_html": _compliance_rows_html(compliance["rows"]),
         "exceptions_html": _exceptions_html(compliance),
+        "has_ddd": has_ddd,
         # Section VII (Contract Analysis) only. Section V (Project Sponsorship)
         # deliberately does NOT show the contract notes — Lauren, 2026-07-06.
         "contract_notes": ed.contract_notes if ed else "",

@@ -230,6 +230,89 @@ def test_render_html_contains_uses_of_funds_lines():
     assert "Net to be Disbursed to Borrower (Est)" in html
 
 
+# --- DDD insurance follows the disbursement (rule 16) ----------------------
+# Lauren, 2026-08-26: the memo and the Deal Summary & Policy Compliance
+# coversheet claim a DDD policy ONLY when the documents' disbursement carries
+# the premium line. Her reference example: a table ending at "To be disbursed
+# to Borrower $1,339,000" has no policy; one continuing with
+# "DDD insurance ($17,000)" down to a Net row does.
+
+def _uof(*extra_labels):
+    """The reference disbursement, plus any post-subtotal lines by label."""
+    return UsesOfFunds(
+        gross_loan_amount=1_400_000,
+        deductions=[
+            DisbursementItem(label="Lender Origination Fee", amount=56_000),
+            DisbursementItem(label="Legal/Closing Costs", amount=5_000),
+        ],
+        additional_costs=[DisbursementItem(label=l, amount=17_000)
+                          for l in extra_labels],
+    )
+
+
+def test_ddd_detected_in_the_disbursement_lines():
+    assert calc.has_ddd_insurance(_uof("DDD insurance"))
+    assert calc.has_ddd_insurance(_uof("Death & Disgrace Insurance (Est)"))
+    # a premium deducted above the to-Borrower subtotal still counts
+    assert calc.has_ddd_insurance(UsesOfFunds(
+        gross_loan_amount=1_400_000,
+        deductions=[DisbursementItem(label="D.D.D. Insurance Premium",
+                                     amount=17_000)]))
+
+
+def test_ddd_absent_when_the_disbursement_lacks_it():
+    assert not calc.has_ddd_insurance(_uof())
+    assert not calc.has_ddd_insurance(_uof("Interest Reserve (Est)"))
+    assert not calc.has_ddd_insurance(None)   # no breakdown at all
+
+
+def test_compliance_ddd_row_reads_none_in_place_without_the_policy():
+    # The coversheet KEEPS its DDD row on every deal (Lauren, 2026-08-26);
+    # without a premium line in the disbursement it reports "None in place"
+    # (reworded from "No Insurance" — Lauren, 2026-08-27) as N/A — a
+    # statement of fact, not an exception — and the mitigants sentence
+    # stops claiming the policy.
+    cf = calc.build_cash_flow(Extraction(salary=10_000_000), None,
+                              1_000_000, 10_000_000)
+    comp = calc.calc_policy_compliance(ltc=10.0, cf=cf,
+                                       mat_fmt="January 1, 2027",
+                                       has_maturity=True, has_ddd=False)
+    row = _comp_row(comp, "DDD insurance assigned to Lender")
+    assert row["actual"] == "None in place"
+    assert row["status"] == "na"
+    assert all(e["label"] != "DDD insurance assigned to Lender"
+               for e in comp["exceptions"])
+    assert "DDD" not in comp["mitigants"]
+
+
+def test_memo_reads_no_insurance_when_the_disbursement_lacks_ddd():
+    ed = Extraction(uses_of_funds=_uof("Interest Reserve (Est)"))
+    terms = DealTerms(name="Test Borrower", loan=1_400_000, salary=9_000_000)
+    html = memo_service.render_html(terms, ed, [])
+    # The coversheet keeps addressing insurance — honestly:
+    assert "DDD insurance assigned to Lender" in html   # checklist row stays
+    assert html.count("None in place") == 1             # its Actual
+    assert html.count("No Insurance") == 1              # the Collateral cell
+    # ...while the memo body stops claiming a policy:
+    assert "DDD policy" not in html            # Collateral cell + Section III
+    assert "DDD insurance policy" not in html  # both Tertiary cards
+    assert "Lloyd" not in html                 # Section II bullet too
+    assert "disability insurance policy" not in html   # injury FAQ bullet
+    assert "Tertiary" not in html              # Sections I and XI lose the card
+
+
+def test_memo_includes_ddd_when_the_disbursement_reflects_it():
+    ed = Extraction(uses_of_funds=_uof("DDD insurance"))
+    terms = DealTerms(name="Test Borrower", loan=1_400_000, salary=9_000_000)
+    html = memo_service.render_html(terms, ed, [])
+    assert "DDD policy" in html
+    assert "DDD insurance assigned to Lender" in html
+    assert "death &amp; disability insurance policy" in html
+    assert html.count("Tertiary") == 2         # Sections I and XI
+    assert "No Insurance" not in html
+    assert "None in place" not in html
+
+
 # --- Cash flow (Guarantor Analysis) ---------------------------------------
 
 def test_taxes_are_45_percent_of_gross(alvarado):

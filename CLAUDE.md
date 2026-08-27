@@ -191,6 +191,28 @@ never silently.
     `_exceptions_html` (memo.py) into the coversheet page of memo.html.j2
     (screen footers are now "of 7"). Locked by the `test_compliance_*` tests.
 
+19. DDD INSURANCE FOLLOWS THE DISBURSEMENT (Lauren, 2026-08-26). The memo
+    claims a DDD (death, disability & disgrace) policy ONLY when the
+    documents' own disbursement breakdown carries the premium line (e.g.
+    "DDD insurance ($17,000)" — either side of the to-Borrower subtotal).
+    When the disbursement does not reflect DDD insurance — or the documents
+    carry no breakdown at all — the MEMO BODY's mentions drop out (both
+    Tertiary repayment-source cards in Sections I and XI, the Section II
+    Lloyd's-of-London bullet, Section III's repayment cell, the injury FAQ's
+    assigned-policy bullet) and the mitigants sentence loses its insurance
+    clause (`STANDARD_MITIGANTS_NO_DDD`). The COVERSHEET keeps addressing
+    insurance either way (Lauren's same-day refinement): the "DDD insurance
+    assigned to Lender" checklist row always prints — Actual "None in place"
+    (reworded from "No Insurance", Lauren 2026-08-27), status N/A (a
+    statement of fact, NOT an exception) when there is no premium line — and
+    the Collateral cell closes with "· No Insurance" instead of
+    "· DDD policy" (deliberately NOT harmonized with the row's rewording). Decided by `calc.has_ddd_insurance` (regex
+    over the Uses-of-Funds labels: DDD / D.D.D. / death / disab / disgrace),
+    threaded through `calc_policy_compliance(has_ddd=...)` and the template's
+    `has_ddd` flag (rule 16 in calculations.py's own numbering). Locked by
+    the `test_ddd_*` / `test_memo_*_ddd_*` / `test_memo_reads_no_insurance_*`
+    / `test_compliance_ddd_row_reads_none_in_place_without_the_policy` tests.
+
 The Alvarado reference deal: $12,267,600 assets, $10,373,361 total liabilities,
 $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.
 
