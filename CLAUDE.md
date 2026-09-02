@@ -364,6 +364,19 @@ conflict) — that figure now rides on the check as `doc_salary` /
 - The STRUCTURE tab still treats the documents as primary: it attaches the
   same check for verification lines only (structure_extraction never calls
   apply_spotrac_precedence). Flip it there only if Lauren asks.
+- CARRIED PREFILLS MUST NOT DEFEAT THE RULE (Lauren, 2026-09-02 — a memo
+  kept the contract's salary because the Structure tab, documents-first by
+  design, had seeded the memo's Step 2 salary via sendToMemo before the memo
+  extraction ran, and the blanks-only fill then skipped the Spotrac figure).
+  sendToMemo records what it carries in App.vue's `carriedTerms`
+  ({field: value}); runExtract treats a carried salary still matching that
+  record as a blank, so the Spotrac-primary figure supersedes it. A value
+  the underwriter EDITED no longer matches the record and still wins
+  (rule 10, confirmed terms win). The extraction status line now also says
+  what actually happened: prefilled from Spotrac / Spotrac figures kept out
+  by values already set (with the Use-Spotrac-figure hint) / Spotrac
+  produced no figure so the documents (the backup) filled in — the fallback
+  is never silent.
 
 ## Section V — Project Sponsorship research
 

@@ -6,6 +6,11 @@ import { structureCadences, structureCadence, structureExtract, structurePropose
 // Loan Documents store this tab pushes the SELECTED structure into.
 const props = defineProps({
   memoTerms: { type: Object, default: () => ({}) },
+  // App-owned record of the memo terms this tab carried over ({field: value}),
+  // so the memo tab can tell a carried convenience prefill from a figure the
+  // underwriter set — its Spotrac-primary salary supersedes an untouched
+  // carried value, never an edited one.
+  carriedTerms: { type: Object, default: null },
   memoExtraction: { type: Object, default: null },
   loanDocsTerms: { type: Object, default: null },
   // The App-owned deal-document list, shared with the Credit Memo tab: a deal
@@ -416,7 +421,13 @@ function sendToMemo() {
   }
   let filled = 0
   for (const [k, v] of Object.entries(map)) {
-    if (v !== null && v !== undefined && v !== '' && !t[k]) { t[k] = v; filled++ }
+    if (v !== null && v !== undefined && v !== '' && !t[k]) {
+      t[k] = v
+      // Record the carry so the memo tab knows this value was seeded, not
+      // set by the underwriter (its Spotrac-primary prefill may supersede it).
+      if (props.carriedTerms) props.carriedTerms[k] = v
+      filled++
+    }
   }
   memoPush.value = filled
     ? `✓ ${filled} deal term(s) carried to the Credit Memo tab`

@@ -26,6 +26,15 @@ const TAB_TAGS = {
 // "Pull deal info from Loan Documents" can read them.
 const loanDocsTerms = reactive({})
 
+// Memo terms another tab CARRIED into Step 2 (today: the Structure tab's
+// sendToMemo), recorded as {field: carried value}. Lets runExtract tell a
+// convenience prefill from a figure the underwriter actually set: a carried
+// value left untouched must not block the memo's own Spotrac-primary salary
+// prefill (Lauren, 2026-09-02 — a memo kept the contract figure because the
+// Structure tab, which is documents-first by design, had seeded the field
+// before the memo extraction ran).
+const carriedTerms = reactive({})
+
 // --- state -----------------------------------------------------------------
 const files = ref([])
 const extracting = ref(false)
@@ -222,7 +231,17 @@ async function runExtract() {
     // source for the guaranteed salary and remaining value (documents as
     // backup — Lauren, 2026-08-25), so ed.salary / ed.contract_remaining
     // carry the right figure whichever source produced it.
-    if (ed.salary && !terms.salary) terms.salary = ed.salary
+    // The one exception to blanks-only: a salary CARRIED over by the
+    // Structure tab (documents-first by design) and left untouched is a
+    // convenience prefill, not the underwriter's confirmation — this tab's
+    // Spotrac-primary figure supersedes it. A value the underwriter edited
+    // no longer matches the carried record and still wins (rule 10).
+    const carriedUntouched = (k) => carriedTerms[k] != null
+      && String(terms[k] ?? '') === String(carriedTerms[k])
+    if (ed.salary && (!terms.salary || carriedUntouched('salary'))) {
+      if (carriedTerms.salary != null) carriedTerms.salary = ed.salary
+      terms.salary = ed.salary
+    }
     if (ed.contract_remaining && !terms.contract_remaining) {
       terms.contract_remaining = ed.contract_remaining
     }
@@ -230,12 +249,31 @@ async function runExtract() {
     if (ed.interest_rate_pct && !terms.rate) terms.rate = ed.interest_rate_pct
     if (ed.origination_fee_pct && !terms.fee) terms.fee = ed.origination_fee_pct
     await refreshRollforward()
-    const fromSpotrac = ed.salary_check?.salary_source === 'spotrac'
-      || ed.salary_check?.remaining_source === 'spotrac'
-    status.type = 'ok'
-    status.msg = fromSpotrac
-      ? '✓ Extracted — guaranteed salary / remaining prefilled from Spotrac (primary source); the documents\' figures are shown beneath the fields as backup'
-      : '✓ Extracted — confirm deal terms and generate'
+    // Say what actually happened to the two Spotrac-primary fields: the
+    // Spotrac figures landed, they were kept out by values already set, or
+    // Spotrac produced nothing and the documents (the backup) filled in —
+    // the silent fallback must be loud enough to notice.
+    const check = ed.salary_check || {}
+    const fromSpotrac = check.salary_source === 'spotrac'
+      || check.remaining_source === 'spotrac'
+    const spotracBlocked =
+      (check.salary_source === 'spotrac'
+        && Number(terms.salary) !== Number(ed.salary))
+      || (check.remaining_source === 'spotrac'
+        && Number(terms.contract_remaining) !== Number(ed.contract_remaining))
+    if (fromSpotrac && !spotracBlocked) {
+      status.type = 'ok'
+      status.msg = '✓ Extracted — guaranteed salary / remaining prefilled from Spotrac (primary source); the documents\' figures are shown beneath the fields as backup'
+    } else if (fromSpotrac) {
+      status.type = 'info'
+      status.msg = '✓ Extracted — Spotrac produced figures (the primary source), but the salary / remaining fields already carried values, which were kept. Use "Use Spotrac figure" beneath a field to take Spotrac\'s number.'
+    } else if (ed.salary || ed.contract_remaining) {
+      status.type = 'info'
+      status.msg = '✓ Extracted — Spotrac produced no figure, so the guaranteed salary / remaining are the documents\' figures (the backup). Verify them at spotrac.com, then confirm deal terms and generate.'
+    } else {
+      status.type = 'ok'
+      status.msg = '✓ Extracted — confirm deal terms and generate'
+    }
   } catch (err) {
     status.type = 'err'
     status.msg = 'Extraction failed: ' + err.message
@@ -297,7 +335,7 @@ async function exportWord() {
          Structure tab are the same ones the Credit Memo extracts from, so a
          deal is uploaded once. `terms` is reactive, so the Structure tab fills
          the memo's deal terms directly (blanks only — typed values survive). -->
-    <StructureBuilder v-if="view === 'structure'" :memo-terms="terms" :memo-extraction="extraction" :loan-docs-terms="loanDocsTerms" :deal-files="files" />
+    <StructureBuilder v-if="view === 'structure'" :memo-terms="terms" :carried-terms="carriedTerms" :memo-extraction="extraction" :loan-docs-terms="loanDocsTerms" :deal-files="files" />
     <PaBuilder v-else-if="view === 'pa'" :memo-terms="terms" :memo-extraction="extraction" />
     <LoanDocsBuilder v-else-if="view === 'loandocs'" :memo-terms="terms" :memo-extraction="extraction" :terms-store="loanDocsTerms" />
     <ClosingBinderBuilder v-else-if="view === 'binder'" :loandocs-terms="loanDocsTerms" />
