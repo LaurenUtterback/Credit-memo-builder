@@ -202,11 +202,14 @@ never silently.
     assigned-policy bullet) and the mitigants sentence loses its insurance
     clause (`STANDARD_MITIGANTS_NO_DDD`). The COVERSHEET keeps addressing
     insurance either way (Lauren's same-day refinement): the "DDD insurance
-    assigned to Lender" checklist row always prints — Actual "None in place"
-    (reworded from "No Insurance", Lauren 2026-08-27), status N/A (a
-    statement of fact, NOT an exception) when there is no premium line — and
-    the Collateral cell closes with "· No Insurance" instead of
-    "· DDD policy" (deliberately NOT harmonized with the row's rewording). Decided by `calc.has_ddd_insurance` (regex
+    assigned to Lender" checklist row always prints — Requirement
+    "If applicable", Actual "None in place" (reworded from "Required" /
+    "No Insurance", Lauren 2026-08-27: "Required" next to "None in place"
+    read like a failed requirement), status N/A (a statement of fact, NOT an
+    exception) when there is no premium line; Requirement stays "Required"
+    when the policy is there — and the Collateral cell closes with
+    "· No Insurance" instead of "· DDD policy" (deliberately NOT harmonized
+    with the row's rewording). Decided by `calc.has_ddd_insurance` (regex
     over the Uses-of-Funds labels: DDD / D.D.D. / death / disab / disgrace),
     threaded through `calc_policy_compliance(has_ddd=...)` and the template's
     `has_ddd` flag (rule 16 in calculations.py's own numbering). Locked by

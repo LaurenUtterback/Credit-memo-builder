@@ -100,10 +100,10 @@ Underwriting rules encoded here
     assigned-policy bullet) and the mitigants sentence loses its insurance
     clause. The Deal Summary & Policy Compliance coversheet KEEPS its
     insurance line either way (same-day refinement): the checklist row reads
-    "None in place" (status N/A; reworded from "No Insurance" — Lauren,
-    2026-08-27) and the Collateral cell closes with "No Insurance" instead
-    of "DDD policy". ``has_ddd_insurance`` decides from the Uses-of-Funds
-    lines.
+    "If applicable" / "None in place" (status N/A; reworded from
+    "Required" / "No Insurance" — Lauren, 2026-08-27) and the Collateral
+    cell closes with "No Insurance" instead of "DDD policy".
+    ``has_ddd_insurance`` decides from the Uses-of-Funds lines.
 """
 
 from __future__ import annotations
@@ -870,8 +870,9 @@ def calc_policy_compliance(*, ltc: float, cf: dict,
 
     ``has_ddd`` follows the documents' disbursement (rule 16 —
     has_ddd_insurance). The "DDD insurance assigned to Lender" row always
-    prints (Lauren, 2026-08-26); when False its Actual reads "None in place"
-    with status N/A, and the mitigants sentence loses its insurance clause,
+    prints (Lauren, 2026-08-26); when False it reads "If applicable" /
+    "None in place" with status N/A, and the mitigants sentence loses its
+    insurance clause,
     so the coversheet never claims a policy the deal does not carry.
 
     RETIRED CRITERIA (Lauren, 2026-08-25 — removed from the coversheet, the
@@ -912,14 +913,15 @@ def calc_policy_compliance(*, ltc: float, cf: dict,
         add(label, "Required", actual, "pass")
 
     # The DDD row ALWAYS prints (Lauren, 2026-08-26); what it reports follows
-    # the documents' disbursement (rule 16): the policy as a condition of
-    # closing when the premium line is there, "None in place" (N/A) when not
-    # (reworded from "No Insurance" — Lauren, 2026-08-27).
+    # the documents' disbursement (rule 16): Required / policy as a condition
+    # of closing when the premium line is there, "If applicable" /
+    # "None in place" (N/A) when not — "Required" next to "None in place"
+    # read like a failed requirement (reworded — Lauren, 2026-08-27).
     if has_ddd:
         add("DDD insurance assigned to Lender", "Required",
             "Condition of closing — policy naming Lender", "pass")
     else:
-        add("DDD insurance assigned to Lender", "Required",
+        add("DDD insurance assigned to Lender", "If applicable",
             "None in place", "na")
 
     add("US work authorization current", "Required",

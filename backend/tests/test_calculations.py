@@ -268,16 +268,18 @@ def test_ddd_absent_when_the_disbursement_lacks_it():
 
 def test_compliance_ddd_row_reads_none_in_place_without_the_policy():
     # The coversheet KEEPS its DDD row on every deal (Lauren, 2026-08-26);
-    # without a premium line in the disbursement it reports "None in place"
-    # (reworded from "No Insurance" — Lauren, 2026-08-27) as N/A — a
-    # statement of fact, not an exception — and the mitigants sentence
-    # stops claiming the policy.
+    # without a premium line in the disbursement it reports "If applicable" /
+    # "None in place" (reworded from "Required" / "No Insurance" — Lauren,
+    # 2026-08-27: "Required" next to "None in place" read like a failed
+    # requirement) as N/A — a statement of fact, not an exception — and the
+    # mitigants sentence stops claiming the policy.
     cf = calc.build_cash_flow(Extraction(salary=10_000_000), None,
                               1_000_000, 10_000_000)
     comp = calc.calc_policy_compliance(ltc=10.0, cf=cf,
                                        mat_fmt="January 1, 2027",
                                        has_maturity=True, has_ddd=False)
     row = _comp_row(comp, "DDD insurance assigned to Lender")
+    assert row["req"] == "If applicable"
     assert row["actual"] == "None in place"
     assert row["status"] == "na"
     assert all(e["label"] != "DDD insurance assigned to Lender"
