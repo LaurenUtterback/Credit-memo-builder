@@ -982,6 +982,28 @@ def test_no_detail_lines_without_a_schedule(stale_pfs, at_memo_date):
     assert 'class="dsc"' not in html
 
 
+def test_a_split_summary_line_lists_each_debt_once(stale_pfs, at_memo_date):
+    """A statement can carry TWO lines of the same category — "Notes Payable
+    to others (Secured)" and "(Unsecured)" (2026-09-02, a real memo) — and the
+    breakdown printed under both listed every Schedule F debt twice. Each debt
+    is listed once, under the first line of its category (where the paydown is
+    applied); the second line prints with no breakdown."""
+    stale_pfs.liabilities = [
+        LineItem(label="Mortgage Debt", amount=2_753_066),
+        LineItem(label="Notes Payable to others (Secured)", amount=141_235),
+        LineItem(label="Notes Payable to others (Unsecured)", amount=100_000),
+        LineItem(label="Notes Payable: Contract Based", amount=1_544_835),
+    ]
+    html = memo_service.render_html(MEMO_TERMS, stale_pfs, [])
+    # Count DETAIL ROWS, not bare names — the Credit paragraph also narrates
+    # each rolled debt by name.
+    for lender in ("Northgate Bank", "Credit Cards", "MidState Bank"):
+        assert html.count(f'class="dsc-lbl">{lender}') == 1, \
+            f"{lender} listed more than once"
+    # One detail line per scheduled debt — nothing duplicated, nothing orphaned.
+    assert html.count('class="dsc"') == len(stale_pfs.debt_schedule)
+
+
 def test_unapplied_paydown_is_recorded_per_category(stale_pfs):
     stale_pfs.debt_schedule.append(DebtScheduleRow(
         lender="Uncategorised", category="", balance=30_000, payment=500,

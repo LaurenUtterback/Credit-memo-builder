@@ -222,12 +222,22 @@ def _pfs_html(ed: Extraction | None, facility_due: float, salary: float,
         if facility_due:
             out.append(f'<tr><td><em>Proposed Facility (includes interest)</em></td>'
                        f'<td class="num-col"><em>{_money(facility_due)}</em></td></tr>')
+        detailed: set[str] = set()
         for l in bs["liab_items"]:
             if l.amount:
                 out.append(f'<tr><td>{l.label}</td><td class="num-col">{_money(l.amount)}</td></tr>')
                 # Rule 15 — each financed debt that rolls into this line is
                 # listed under it, so a debt added in Step 2b always shows.
-                out.append(_debt_detail_rows(rf, calc.summary_category(l.label)))
+                # Under the FIRST line of its category only: a statement can
+                # carry two lines the category matches ("Notes Payable to
+                # others (Secured)" and "(Unsecured)", 2026-09-02), and the
+                # breakdown printed under both listed every debt twice. The
+                # first line is also where _apply_rollforward takes the
+                # paydown from, so the breakdown sits with the money.
+                cat = calc.summary_category(l.label)
+                if cat not in detailed:
+                    detailed.add(cat)
+                    out.append(_debt_detail_rows(rf, cat))
         out.append(_orphan_debt_rows(rf, bs["liab_items"]))
         out.append(f'<tr class="total"><td>Total Liabilities (incl. Proposed Facility)</td>'
                    f'<td class="num-col">{_money(bs["total_liab"])}</td></tr>')

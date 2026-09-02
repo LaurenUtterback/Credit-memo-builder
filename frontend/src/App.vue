@@ -58,6 +58,8 @@ const genError = ref('')
 // the memo is generated — so an override here is what the memo renders.
 const rollforward = ref(null)
 const rfError = ref('')
+// Explains what a just-removed schedule row does and does not change.
+const removeNote = ref('')
 
 // The page-1 summary liability each schedule row rolls up into. A manually
 // added debt must pick one, or its paydown has no total to come out of.
@@ -81,6 +83,7 @@ async function refreshRollforward() {
 function addDebt() {
   // Extraction misses a schedule row (or the PFS has no schedules at all) —
   // add it by hand so it still rolls forward.
+  removeNote.value = ''
   if (!extraction.value) extraction.value = {}
   if (!extraction.value.debt_schedule) extraction.value.debt_schedule = []
   extraction.value.debt_schedule.push({
@@ -92,7 +95,17 @@ function addDebt() {
 }
 
 function removeDebt(i) {
+  const d = extraction.value.debt_schedule[i]
   extraction.value.debt_schedule.splice(i, 1)
+  // Removing a schedule row removes the BREAKDOWN/aging line only — the PFS's
+  // page-1 summary still reports the balance and Section IX carries the
+  // statement as reported (Lauren, 2026-09-02: expected the ✕ to take a
+  // contract-based note off the memo). Say so, and point at the treatment
+  // that actually takes a repaid balance out of the totals.
+  const cat = DEBT_CATEGORIES.find((c) => c.value === d?.category)
+  removeNote.value = cat
+    ? `Removed the ${d.lender || 'debt'} row from the schedule — but the PFS still reports its balance inside "${cat.label}", and the memo carries the statement's summary lines as reported. If this debt is repaid (or is being paid off at closing), keep the row instead and set its Treatment to "Zero out (repaid)": the whole balance then leaves Total Liabilities, with a footnoted detail line showing it as repaid in full.`
+    : ''
   refreshRollforward()
 }
 
@@ -214,6 +227,7 @@ function removeFile(i) {
 async function runExtract() {
   if (!files.value.length) return
   extracting.value = true
+  removeNote.value = ''
   status.type = 'info'
   status.msg = `Analyzing ${files.value.length} document(s) with Claude…`
   try {
@@ -497,6 +511,7 @@ async function exportWord() {
 
       <p v-for="(w, i) in rollforward?.warnings || []" :key="i" class="status err">⚠ {{ w }}</p>
       <p v-if="rfError" class="status err">⚠ {{ rfError }}</p>
+      <p v-if="removeNote" class="status info">ℹ {{ removeNote }}</p>
       <p v-if="rollforward?.note" class="rf-note">{{ rollforward.note }}</p>
       <p class="hint">
         <strong>Roll forward</strong> reduces the balance by the payment for each
