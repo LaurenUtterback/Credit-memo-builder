@@ -188,7 +188,7 @@ def _debt_detail_rows(rf: dict, category: str) -> str:
                    if r["category"] == category)
 
 
-def _orphan_debt_rows(rf: dict, liab_items: list) -> str:
+def _orphan_debt_rows(rf: dict, liab_items: list, reported_items: list) -> str:
     """Scheduled debts with no summary liability to sit under — a row whose
     "Rolls into" category is unset, or one the statement carries no line for.
 
@@ -197,15 +197,29 @@ def _orphan_debt_rows(rf: dict, liab_items: list) -> str:
     nothing is silently dropped either.
     """
     covered = {calc.summary_category(l.label) for l in liab_items if l.amount}
-    orphans = [r for r in (rf.get("rows") or []) if r["category"] not in covered]
-    if not orphans:
-        return ""
-    return (
-        '<tr class="dsc"><td class="dsc-lbl" colspan="2"><em>Scheduled debt not '
-        'carried in the summary totals above &mdash; no matching liability line '
-        'on the statement:</em></td></tr>'
-        + "".join(_debt_row_html(r) for r in orphans)
-    )
+    # The statement's own lines, before any adjustment — a category that WAS
+    # on the statement but no longer prints was consumed by a zero-out (or a
+    # roll-forward that reached $0): a deliberate removal to document, never
+    # an orphan (2026-09-02 — a note paid off at closing was zeroed out and
+    # its audit line printed under the "no matching liability line" caveat).
+    on_statement = {calc.summary_category(l.label) for l in reported_items
+                    if l.amount}
+    leftovers = [r for r in (rf.get("rows") or []) if r["category"] not in covered]
+    removed = [r for r in leftovers if r["category"] in on_statement]
+    orphans = [r for r in leftovers if r["category"] not in on_statement]
+    out = []
+    if removed:
+        out.append(
+            '<tr class="dsc"><td class="dsc-lbl" colspan="2"><em>Repaid in full '
+            '&mdash; removed from the summary totals above:</em></td></tr>'
+            + "".join(_debt_row_html(r) for r in removed))
+    if orphans:
+        out.append(
+            '<tr class="dsc"><td class="dsc-lbl" colspan="2"><em>Scheduled debt not '
+            'carried in the summary totals above &mdash; no matching liability line '
+            'on the statement:</em></td></tr>'
+            + "".join(_debt_row_html(r) for r in orphans))
+    return "".join(out)
 
 
 def _pfs_html(ed: Extraction | None, facility_due: float, salary: float,
@@ -238,7 +252,8 @@ def _pfs_html(ed: Extraction | None, facility_due: float, salary: float,
                 if cat not in detailed:
                     detailed.add(cat)
                     out.append(_debt_detail_rows(rf, cat))
-        out.append(_orphan_debt_rows(rf, bs["liab_items"]))
+        out.append(_orphan_debt_rows(rf, bs["liab_items"],
+                                     (ed.liabilities if ed else None) or []))
         out.append(f'<tr class="total"><td>Total Liabilities (incl. Proposed Facility)</td>'
                    f'<td class="num-col">{_money(bs["total_liab"])}</td></tr>')
         out.append(f'<tr class="grand"><td>Net Worth (Total Assets &minus; Total Liabilities)</td>'

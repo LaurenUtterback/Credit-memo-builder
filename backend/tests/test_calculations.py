@@ -966,6 +966,27 @@ def test_detail_lines_never_change_the_totals(stale_pfs, at_memo_date):
     assert bs["net_worth"] == 5_168_151 - 4_263_676
 
 
+def test_a_zeroed_note_leaves_the_statement_and_moves_both_totals(
+        stale_pfs, at_memo_date):
+    """Treatment "zero" on a note the facility pays off at closing (Lauren,
+    2026-09-02): the summary line drains to $0 and stops printing, Total
+    Liabilities and Net Worth move by the full balance, and the foot of the
+    table documents the removal — never under the "no matching liability
+    line" caveat, which is for true orphans."""
+    before = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    note = next(r for r in stale_pfs.debt_schedule
+                if r.category == "notes_payable_contract")
+    note.treatment = "zero"
+    after = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    assert after["total_liab"] == before["total_liab"] - 1_544_835
+    assert after["net_worth"] == before["net_worth"] + 1_544_835
+    html = memo_service.render_html(MEMO_TERMS, stale_pfs, [])
+    assert "Notes Payable: Contract Based" not in html
+    assert "Repaid in full &mdash; removed from the summary totals above" in html
+    assert "$1,544,835 reported, shown as repaid in full" in html
+    assert "no matching liability line" not in html
+
+
 def test_a_debt_with_no_summary_line_is_shown_but_marked_excluded(
         stale_pfs, at_memo_date):
     stale_pfs.debt_schedule.append(DebtScheduleRow(
