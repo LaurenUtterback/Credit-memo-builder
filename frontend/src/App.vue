@@ -58,8 +58,6 @@ const genError = ref('')
 // the memo is generated — so an override here is what the memo renders.
 const rollforward = ref(null)
 const rfError = ref('')
-// Explains what a just-removed schedule row does and does not change.
-const removeNote = ref('')
 
 // The page-1 summary liability each schedule row rolls up into. A manually
 // added debt must pick one, or its paydown has no total to come out of.
@@ -83,7 +81,6 @@ async function refreshRollforward() {
 function addDebt() {
   // Extraction misses a schedule row (or the PFS has no schedules at all) —
   // add it by hand so it still rolls forward.
-  removeNote.value = ''
   if (!extraction.value) extraction.value = {}
   if (!extraction.value.debt_schedule) extraction.value.debt_schedule = []
   extraction.value.debt_schedule.push({
@@ -94,19 +91,29 @@ function addDebt() {
   refreshRollforward()
 }
 
+// The ✕ takes the debt OFF THE MEMO (Lauren, 2026-09-02): its balance leaves
+// the summary liability it rolls into (Total Liabilities and Net Worth move)
+// and no line prints anywhere. The row is kept, marked "remove", so the strip
+// under the table can say what happened and offer Restore — a misclick must
+// never silently change the totals. Use the "Zero out (repaid)" treatment
+// instead when the memo should disclose the debt as repaid in full.
 function removeDebt(i) {
-  const d = extraction.value.debt_schedule[i]
-  extraction.value.debt_schedule.splice(i, 1)
-  // Removing a schedule row removes the BREAKDOWN/aging line only — the PFS's
-  // page-1 summary still reports the balance and Section IX carries the
-  // statement as reported (Lauren, 2026-09-02: expected the ✕ to take a
-  // contract-based note off the memo). Say so, and point at the treatment
-  // that actually takes a repaid balance out of the totals.
-  const cat = DEBT_CATEGORIES.find((c) => c.value === d?.category)
-  removeNote.value = cat
-    ? `Removed the ${d.lender || 'debt'} row from the schedule — but the PFS still reports its balance inside "${cat.label}", and the memo carries the statement's summary lines as reported. If this debt is repaid (or is being paid off at closing), keep the row instead and set its Treatment to "Zero out (repaid)": the whole balance then leaves Total Liabilities, with a footnoted detail line showing it as repaid in full.`
-    : ''
+  extraction.value.debt_schedule[i].treatment = 'remove'
   refreshRollforward()
+}
+
+function restoreDebt(i) {
+  extraction.value.debt_schedule[i].treatment = 'roll'
+  refreshRollforward()
+}
+
+const removedDebts = computed(() =>
+  (extraction.value?.debt_schedule || [])
+    .map((d, i) => ({ d, i }))
+    .filter((x) => x.d.treatment === 'remove'))
+
+function categoryLabel(cat) {
+  return DEBT_CATEGORIES.find((c) => c.value === cat)?.label || ''
 }
 
 const money = (n) => (n || n === 0)
@@ -227,7 +234,6 @@ function removeFile(i) {
 async function runExtract() {
   if (!files.value.length) return
   extracting.value = true
-  removeNote.value = ''
   status.type = 'info'
   status.msg = `Analyzing ${files.value.length} document(s) with Claude…`
   try {
@@ -459,6 +465,7 @@ async function exportWord() {
         </thead>
         <tbody>
           <tr v-for="(d, i) in extraction.debt_schedule" :key="i"
+              v-show="d.treatment !== 'remove'"
               :class="{ held: !(rollforward?.rows?.[i]?.paydown > 0) }">
             <td>
               <input v-model="d.lender" class="mini wide" placeholder="Lender"
@@ -497,7 +504,8 @@ async function exportWord() {
               <span v-else class="reason">{{ rollforward?.rows?.[i]?.reason || '—' }}</span>
             </td>
             <td>
-              <button type="button" class="rm" @click="removeDebt(i)" title="Remove">✕</button>
+              <button type="button" class="rm" @click="removeDebt(i)"
+                      title="Remove from the memo">✕</button>
             </td>
           </tr>
         </tbody>
@@ -509,9 +517,14 @@ async function exportWord() {
 
       <button type="button" class="ghost" @click="addDebt">+ Add debt</button>
 
+      <p v-for="r in removedDebts" :key="'rm' + r.i" class="status info">
+        ✕ {{ r.d.lender || 'Debt' }} removed from the memo<template v-if="categoryLabel(r.d.category)">
+        — {{ money(r.d.balance) }} comes out of "{{ categoryLabel(r.d.category) }}" and Total Liabilities; nothing about it will print</template><template v-else>
+        — it had no "Rolls into" category, so the statement totals are unchanged</template>.
+        <button type="button" class="use" @click="restoreDebt(r.i)">Restore</button>
+      </p>
       <p v-for="(w, i) in rollforward?.warnings || []" :key="i" class="status err">⚠ {{ w }}</p>
       <p v-if="rfError" class="status err">⚠ {{ rfError }}</p>
-      <p v-if="removeNote" class="status info">ℹ {{ removeNote }}</p>
       <p v-if="rollforward?.note" class="rf-note">{{ rollforward.note }}</p>
       <p class="hint">
         <strong>Roll forward</strong> reduces the balance by the payment for each

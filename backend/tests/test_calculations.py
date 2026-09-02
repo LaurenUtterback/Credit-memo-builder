@@ -987,6 +987,42 @@ def test_a_zeroed_note_leaves_the_statement_and_moves_both_totals(
     assert "no matching liability line" not in html
 
 
+def test_a_removed_debt_vanishes_from_the_memo_and_moves_both_totals(
+        stale_pfs, at_memo_date):
+    """Treatment "remove" — the ✕ in Step 2b (Lauren, 2026-09-02): the debt
+    does not appear on the memo AT ALL. Its balance leaves the summary
+    liability (Total Liabilities and Net Worth move by the full amount), and
+    nothing prints — no summary line, no detail row, no repaid-in-full
+    disclosure, no credit-paragraph sentence. The visible roll-forward
+    footnote still counts only the rolls."""
+    before = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    note = next(r for r in stale_pfs.debt_schedule
+                if r.category == "notes_payable_contract")
+    note.treatment = "remove"
+    after = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    assert after["total_liab"] == before["total_liab"] - 1_544_835
+    assert after["net_worth"] == before["net_worth"] + 1_544_835
+    html = memo_service.render_html(MEMO_TERMS, stale_pfs, [])
+    assert "Notes Payable: Contract Based" not in html
+    assert "Sports Finance Fund" not in html        # no trace anywhere
+    assert "repaid in full" not in html             # not a zero-out disclosure
+    assert "no matching liability line" not in html # not an orphan either
+    assert "$275,460" in html                       # footnote: the rolls only
+
+
+def test_removal_works_on_a_current_statement_and_adds_no_footnote(stale_pfs):
+    # Removal is not a roll-forward: it must land when the statement is
+    # CURRENT (nothing else moves) and must not fabricate a roll-forward note.
+    stale_pfs.pfs_date = MEMO_DATE.isoformat()
+    note = next(r for r in stale_pfs.debt_schedule
+                if r.category == "notes_payable_contract")
+    note.treatment = "remove"
+    bs = calc.calc_balance_sheet(stale_pfs, facility_due=0, as_of=MEMO_DATE)
+    # Reported lines sum 4,539,136; only the removal moves them.
+    assert bs["stated_liab"] == 4_539_136 - 1_544_835
+    assert bs["rollforward"]["applied"] is False
+
+
 def test_a_debt_with_no_summary_line_is_shown_but_marked_excluded(
         stale_pfs, at_memo_date):
     stale_pfs.debt_schedule.append(DebtScheduleRow(

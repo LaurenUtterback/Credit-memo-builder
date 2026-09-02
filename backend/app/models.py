@@ -87,6 +87,12 @@ class DebtScheduleRow(BaseModel):
     #   "zero"           — show as repaid in full; the whole balance comes out
     #                      of the summary liability (a payoff at closing, or a
     #                      debt the underwriter knows is settled)
+    #   "remove"         — take the debt off the memo ENTIRELY (Lauren,
+    #                      2026-09-02 — the ✕ in Step 2b): the balance leaves
+    #                      its summary liability like a zero-out, but NO line
+    #                      prints anywhere — no detail row, no footnote
+    #                      mention, no credit-paragraph sentence. Use "zero"
+    #                      instead when the memo should say "repaid in full".
     treatment: str = "roll"
 
 

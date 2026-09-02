@@ -456,6 +456,11 @@ def calc_debt_rollforward(ed: Optional[Extraction], as_of: Optional[date]) -> di
 
     rows: list[dict] = []
     paydown_by_category: dict[str, float] = {}
+    # Balances REMOVED from the memo (treatment "remove" — the ✕ in Step 2b).
+    # A separate channel from the paydown: it reduces the summary liability
+    # the same way, but the memo's visible disclosure (footnote, credit
+    # paragraph, detail rows) never counts or mentions it (Lauren, 2026-09-02).
+    removed_by_category: dict[str, float] = {}
     warnings: list[str] = []
 
     def _take(cat: str, amount: float) -> None:
@@ -478,11 +483,21 @@ def calc_debt_rollforward(ed: Optional[Extraction], as_of: Optional[date]) -> di
             "adjusted": r.balance or 0.0,
             "rolled": False,
             "zeroed": False,
+            "removed": False,
             "reason": "",
         }
 
         if not row["reported"]:
             row["reason"] = "no balance reported"
+        elif row["treatment"] == "remove":
+            # Off the memo entirely: the balance leaves the summary liability,
+            # and nothing prints — paydown stays 0 so the visible disclosure
+            # never counts it.
+            row.update(adjusted=0.0, removed=True,
+                       reason="removed from the memo")
+            cat = r.category or ""
+            removed_by_category[cat] = (removed_by_category.get(cat, 0.0)
+                                        + row["reported"])
         elif row["treatment"] == "zero":
             # Repaid in full: the whole balance leaves the summary liability.
             row.update(paydown=row["reported"], adjusted=0.0,
@@ -528,13 +543,14 @@ def calc_debt_rollforward(ed: Optional[Extraction], as_of: Optional[date]) -> di
         return {
             "applied": False, "pfs_date": pfs_date, "as_of": as_of, "months": months,
             "rows": rows, "paydown_by_category": {}, "total_paydown": 0.0,
+            "removed_by_category": removed_by_category,
             "note": "", "warnings": warnings,
         }
 
     rolled = [r for r in moved if not r["zeroed"]]
     zeroed = [r for r in moved if r["zeroed"]]
     held = [r for r in rows if r["paydown"] <= 0 and r["reported"]
-            and r["reason"] != "no balance reported"]
+            and not r["removed"] and r["reason"] != "no balance reported"]
 
     sentences = []
     if pfs_date:
@@ -576,6 +592,7 @@ def calc_debt_rollforward(ed: Optional[Extraction], as_of: Optional[date]) -> di
         "rows": rows,
         "paydown_by_category": paydown_by_category,
         "total_paydown": sum(r["paydown"] for r in moved),
+        "removed_by_category": removed_by_category,
         "note": " ".join(sentences),
         "warnings": warnings,
     }
@@ -586,6 +603,10 @@ def _apply_rollforward(liab_items: list[LineItem], rf: dict) -> list[LineItem]:
     schedule rows that roll up into it. Returns NEW LineItems — the extraction's
     own rows are never mutated, so the reported figures stay recoverable."""
     remaining = dict(rf.get("paydown_by_category") or {})
+    # Removed balances (treatment "remove") reduce the lines the same way the
+    # visible paydown does — they are only excluded from the memo's DISCLOSURE.
+    for _cat, _amt in (rf.get("removed_by_category") or {}).items():
+        remaining[_cat] = remaining.get(_cat, 0.0) + _amt
     out: list[LineItem] = []
     for item in liab_items:
         cat = _summary_category(item.label)
@@ -670,7 +691,9 @@ def calc_balance_sheet(ed: Optional[Extraction], facility_due: float,
     reported_liab = _sum(liab_items) or (ed.total_liabilities if ed else 0) or 0
 
     rf = calc_debt_rollforward(ed, as_of)
-    if rf["applied"]:
+    # A removal must land even when nothing rolled (a current statement) —
+    # it is not a roll-forward, just a balance taken off the memo.
+    if rf["applied"] or rf.get("removed_by_category"):
         liab_items = _apply_rollforward(liab_items, rf)
 
     # Fall back to the stated total only when there are no line items at all —

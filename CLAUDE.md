@@ -154,9 +154,21 @@ never silently.
     as detail only, so it does NOT raise Total Liabilities — the detail lines
     then will not sum to the summary line. Adding an "additive" treatment is
     the open question. Each debt has a `treatment`: "roll"
-    (default), "hold" (carry as reported) or "zero" (repaid in full — the whole
+    (default), "hold" (carry as reported), "zero" (repaid in full — the whole
     balance leaves its summary liability, and unlike a roll-forward this does
-    NOT require a stale PFS). Step 2b of the UI shows reported vs adjusted per
+    NOT require a stale PFS) or "remove" (Lauren, 2026-09-02 — the ✕ in Step
+    2b): the debt comes OFF THE MEMO ENTIRELY — its balance leaves the
+    summary liability like a zero-out, but NOTHING prints (no summary line
+    once drained, no detail row, no footnote mention, no credit-paragraph
+    sentence). The removal rides `removed_by_category`, a channel separate
+    from the visible paydown, so the disclosed roll-forward totals never
+    count it, and it lands even on a CURRENT statement. The ✕ therefore no
+    longer deletes the row: it marks it "remove", the table hides it, and a
+    strip under the table names what was removed with a Restore button — a
+    misclick must never silently change Total Liabilities. Removal is
+    UNDISCLOSED on the memo by design (Lauren: "it will not appear on the
+    Credit Memo"); use "zero" when the memo should say "repaid in full".
+    Step 2b of the UI shows reported vs adjusted per
     debt, every field editable, previewed by `POST /api/memo/rollforward` so the
     review table and the memo can never disagree. The step appears whenever
     documents have been read — including when NO schedules were found — because

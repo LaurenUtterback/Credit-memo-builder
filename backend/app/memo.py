@@ -185,7 +185,7 @@ def _debt_detail_rows(rf: dict, category: str) -> str:
     if not category:
         return ""
     return "".join(_debt_row_html(r) for r in (rf.get("rows") or [])
-                   if r["category"] == category)
+                   if r["category"] == category and not r.get("removed"))
 
 
 def _orphan_debt_rows(rf: dict, liab_items: list, reported_items: list) -> str:
@@ -204,7 +204,9 @@ def _orphan_debt_rows(rf: dict, liab_items: list, reported_items: list) -> str:
     # its audit line printed under the "no matching liability line" caveat).
     on_statement = {calc.summary_category(l.label) for l in reported_items
                     if l.amount}
-    leftovers = [r for r in (rf.get("rows") or []) if r["category"] not in covered]
+    # A removed debt (treatment "remove" — the ✕) prints NOWHERE, by design.
+    leftovers = [r for r in (rf.get("rows") or [])
+                 if r["category"] not in covered and not r.get("removed")]
     removed = [r for r in leftovers if r["category"] in on_statement]
     orphans = [r for r in leftovers if r["category"] not in on_statement]
     out = []
