@@ -8,7 +8,8 @@ now reads whatever player page it lands on via _read_player_page; these lock
 that helper's league check and chrome-trimming.
 """
 
-from app.research import _read_player_page, _SPOTRAC_MAX_CHARS
+from app.research import (_core_tokens, _pick_wiki_title, _read_player_page,
+                          _search_names, _SPOTRAC_MAX_CHARS)
 
 
 class _FakePage:
@@ -60,3 +61,58 @@ def test_text_is_capped():
         "Contract Details " + "x" * (_SPOTRAC_MAX_CHARS * 2))
     text, _ = _read_player_page(page, "Jalen Two-Rivers", "nfl")
     assert len(text) <= _SPOTRAC_MAX_CHARS
+
+
+# 2026-09-02: the extraction reads the contract's LEGAL name ("Jalen A.
+# Two-Rivers Jr."), but Spotrac and Wikipedia index the common one ("Jalen
+# Two-Rivers Jr."), so the middle initial turned both searches into zero
+# results on a real deal and the guaranteed-salary check silently fell back
+# to the documents. The lookups now retry with simplified name variants.
+
+
+def test_search_names_tries_legal_then_common_then_bare():
+    assert _search_names("Jalen A. Two-Rivers Jr.") == [
+        "Jalen A. Two-Rivers Jr.",   # as extracted
+        "Jalen Two-Rivers Jr.",      # middle initial dropped
+        "Jalen Two-Rivers",          # suffix dropped too
+    ]
+
+
+def test_search_names_for_a_plain_name_is_just_the_name():
+    # No initials or suffix — no pointless retry queries.
+    assert _search_names("Jalen Two-Rivers") == ["Jalen Two-Rivers"]
+
+
+def test_core_tokens_surname_is_never_the_suffix():
+    # "jr." as the surname test would match ANY junior on a results page.
+    assert _core_tokens("Jalen A. Two-Rivers Jr.") == ["jalen", "two-rivers"]
+    assert _core_tokens("Jalen Two-Rivers III") == ["jalen", "two-rivers"]
+
+
+def test_wiki_title_prefers_the_suffix_over_the_fathers_page():
+    hits = [{"title": "Jalen Two-Rivers"}, {"title": "Jalen Two-Rivers Jr."}]
+    strong, _ = _pick_wiki_title(hits, "Jalen A. Two-Rivers Jr.")
+    assert strong == "Jalen Two-Rivers Jr."
+
+
+def test_wiki_junk_hits_are_only_a_weak_match():
+    # The legal-name search can return exactly this junk while the common-name
+    # search finds the athlete — junk must never stop the variant loop.
+    hits = [{"title": "Two-Rivers (surname)"}, {"title": "Jalen (name)"}]
+    strong, weak = _pick_wiki_title(hits, "Jalen A. Two-Rivers Jr.")
+    assert strong is None
+    assert weak == "Two-Rivers (surname)"
+
+
+def test_player_page_trim_finds_the_common_name_for_a_legal_one():
+    # The page prints "Jalen Two-Rivers"; the extracted legal name carries a
+    # middle initial and suffix the page never shows. The trim must still
+    # find the player content (no "Contract Details" marker here on purpose).
+    page = _FakePage(
+        "https://www.spotrac.com/nfl/player/_/id/0/jalen-two-rivers",
+        "HOME NFL NBA Trending: Some Other Player\n"
+        "Jalen Two-Rivers\nGotham Knights, Outside Linebacker\n"
+        "2026 CAP HIT $4,772,747")
+    text, _ = _read_player_page(page, "Jalen A. Two-Rivers Jr.", "nfl")
+    assert text.startswith("Jalen Two-Rivers")
+    assert "Trending" not in text

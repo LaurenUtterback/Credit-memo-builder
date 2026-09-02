@@ -78,33 +78,102 @@ def _league_slug(league: str | None, sport: str | None) -> str | None:
     return None
 
 
+# Generational suffixes: part of the name but never how a search index keys it,
+# and never the token to treat as the surname ("jr." would match ANY junior).
+_SUFFIX_TOKENS = {"jr", "sr", "ii", "iii", "iv", "v"}
+
+
+def _is_initial(token: str) -> bool:
+    return len(token.rstrip(".")) == 1
+
+
+def _is_suffix(token: str) -> bool:
+    return token.rstrip(".").lower() in _SUFFIX_TOKENS
+
+
+def _core_tokens(name: str) -> list[str]:
+    """The lowercased tokens that identify the athlete — middle initials and
+    generational suffixes dropped, so the last element is the real surname."""
+    tokens = name.lower().split()
+    core = [t for t in tokens if not _is_initial(t) and not _is_suffix(t)]
+    return core or tokens
+
+
+def _search_names(name: str) -> list[str]:
+    """Search queries to try, most faithful first.
+
+    Contracts state the LEGAL name ("Joey E. Porter Jr.") while Spotrac and
+    Wikipedia index the common one ("Joey Porter Jr."), so a middle initial
+    turned both searches into zero results on a real deal (2026-09-02) and
+    the salary check silently fell back to the documents. Variants: as
+    extracted, without middle initials, then also without the suffix.
+    """
+    name = " ".join(name.split())
+    tokens = name.split()
+    no_initials = [t for t in tokens if not _is_initial(t)]
+    no_suffix = [t for t in no_initials if not _is_suffix(t)]
+    out: list[str] = []
+    for variant in (name, " ".join(no_initials), " ".join(no_suffix)):
+        if variant and variant not in out:
+            out.append(variant)
+    return out
+
+
+def _pick_wiki_title(hits: list[dict], name: str) -> tuple[str | None, str | None]:
+    """(strong_title, weak_title) for the athlete among one search's hits.
+
+    Strong: a title carrying every non-initial token — suffix included, so
+    "Joey Porter Jr." beats the father's "Joey Porter" — else every core
+    token. Weak: the surname alone, which a junk hit like "Porter (surname)"
+    also matches, so callers may use it only as a LAST resort after every
+    search variant failed the strong test. Initials and suffixes are never
+    the surname test — "jr." would match any junior. A hit sharing none of
+    these means the search matched something unrelated, and feeding it to
+    the memo is worse than saying nothing.
+    """
+    named = [t for t in name.lower().split() if not _is_initial(t)]
+    core = _core_tokens(name)
+    last_name = core[-1].rstrip(".")
+    strong = (
+        next((h["title"] for h in hits
+              if all(t in h["title"].lower() for t in named)), None)
+        or next((h["title"] for h in hits
+                 if all(t in h["title"].lower() for t in core)), None)
+    )
+    weak = next((h["title"] for h in hits
+                 if last_name in h["title"].lower()), None)
+    return strong, weak
+
+
 def wiki_lookup(name: str, sport: str | None) -> tuple[str | None, str | None]:
     """Return (intro_text, article_url) for the athlete's Wikipedia page."""
     import httpx  # dependency of the anthropic SDK, so always installed
 
     headers = {"User-Agent": _WIKI_UA}
-    search = httpx.get(
-        "https://en.wikipedia.org/w/api.php",
-        params={
-            "action": "query", "list": "search", "format": "json",
-            "srsearch": f"{name} {sport or ''}".strip(), "srlimit": 3,
-        },
-        headers=headers, timeout=20,
-    )
-    search.raise_for_status()
-    hits = search.json().get("query", {}).get("search", [])
-    if not hits:
-        return None, None
-
-    # Prefer a title carrying the borrower's FULL name; fall back to the last
-    # name. A hit sharing neither means the search matched something unrelated,
-    # and feeding it to the memo is worse than saying nothing.
-    tokens = name.lower().split()
-    last_name = tokens[-1]
-    title = next(
-        (h["title"] for h in hits if all(t in h["title"].lower() for t in tokens)),
-        None,
-    ) or next((h["title"] for h in hits if last_name in h["title"].lower()), None)
+    # The legal-name query can return only junk ("Porter (surname)", "Joey
+    # (name)") while the common-name query finds the athlete (2026-09-02) —
+    # so a variant's hits only count when one actually names the athlete,
+    # and the surname-only match is a last resort after ALL variants.
+    title = None
+    weak_title = None
+    for query in _search_names(name):
+        search = httpx.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "query", "list": "search", "format": "json",
+                "srsearch": f"{query} {sport or ''}".strip(), "srlimit": 3,
+            },
+            headers=headers, timeout=20,
+        )
+        search.raise_for_status()
+        hits = search.json().get("query", {}).get("search", [])
+        strong, weak = _pick_wiki_title(hits, name)
+        if strong:
+            title = strong
+            break
+        if weak_title is None:
+            weak_title = weak
+    title = title or weak_title
     if not title:
         return None, None
 
@@ -138,8 +207,11 @@ def _read_player_page(page, name: str,
     text = page.inner_text("body")
     # Skip the site chrome (nav / trending lists) at the top of the body; the
     # player content starts at their name or the "Contract Details" tab strip.
+    # The page prints the COMMON name, so find the core name (no middle
+    # initial / suffix), never the extracted legal one.
     lowered = text.lower()
-    start = max(lowered.find(name.lower()), lowered.find("contract details"))
+    start = max(lowered.find(" ".join(_core_tokens(name))),
+                lowered.find("contract details"))
     return text[max(start, 0):][:_SPOTRAC_MAX_CHARS], page.url
 
 
@@ -149,44 +221,57 @@ def spotrac_lookup(name: str, league: str | None,
     from playwright.sync_api import sync_playwright  # imported lazily; heavy dep
 
     slug = _league_slug(league, sport)
-    tokens = name.lower().split()
-    last_name = tokens[-1]
+    named = [t for t in name.lower().split() if not _is_initial(t)]
+    core = _core_tokens(name)
+    last_name = core[-1].rstrip(".")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
             ctx = browser.new_context(user_agent=_BROWSER_UA, locale="en-US")
             page = ctx.new_page()
-            page.goto(_SPOTRAC_SEARCH.format(query=name.replace(" ", "%20")),
-                      wait_until="domcontentloaded", timeout=45000)
-            page.wait_for_timeout(2500)
-            # A single-match search redirects STRAIGHT to the player page —
-            # no result links to click (seen 2026-08-20 on a real deal: the
-            # old link-hunt found nothing and the whole lookup silently
-            # returned None). Read the page we landed on.
-            if "/player/" in page.url:
-                got = _read_player_page(page, name, slug)
-                if got:
-                    return got
-            candidates = page.eval_on_selector_all(
-                "a[href*='/player/']",
-                "els => els.map(e => ({href: e.href, text: (e.innerText || '').trim()}))",
-            )
-            matches = [c for c in candidates if last_name in c["text"].lower()]
-            # Full-name matches first: a sibling or teammate sharing the
-            # surname (e.g. Luke Hughes vs Jack Hughes, both NJ Devils) can
-            # otherwise outrank the borrower in Spotrac's result order and
-            # would pass the league check below.
-            full = [c for c in matches
-                    if all(t in c["text"].lower() for t in tokens)]
-            ordered = full + [c for c in matches if c not in full]
-
-            for cand in ordered[:4]:
-                page.goto(cand["href"], wait_until="domcontentloaded", timeout=45000)
+            # Spotrac indexes the COMMON name; searching the extracted legal
+            # one ("Joey E. Porter Jr.") can return nothing at all
+            # (2026-09-02, a real deal). Try the name as extracted, then
+            # without the middle initial, then without the suffix.
+            for query in _search_names(name):
+                page.goto(_SPOTRAC_SEARCH.format(query=query.replace(" ", "%20")),
+                          wait_until="domcontentloaded", timeout=45000)
                 page.wait_for_timeout(2500)
-                got = _read_player_page(page, name, slug)
-                if got:
-                    return got
+                # A single-match search redirects STRAIGHT to the player page —
+                # no result links to click (seen 2026-08-20 on a real deal: the
+                # old link-hunt found nothing and the whole lookup silently
+                # returned None). Read the page we landed on.
+                if "/player/" in page.url:
+                    got = _read_player_page(page, name, slug)
+                    if got:
+                        return got
+                    continue
+                candidates = page.eval_on_selector_all(
+                    "a[href*='/player/']",
+                    "els => els.map(e => ({href: e.href, text: (e.innerText || '').trim()}))",
+                )
+                # The surname is the CORE last token — a suffix like "jr."
+                # would match any junior on the results page.
+                matches = [c for c in candidates if last_name in c["text"].lower()]
+                # Full-name matches first: a sibling or teammate sharing the
+                # surname (e.g. Luke Hughes vs Jack Hughes, both NJ Devils) can
+                # otherwise outrank the borrower in Spotrac's result order and
+                # would pass the league check below. Suffix-carrying matches
+                # outrank core-name ones (Joey Porter Jr. vs his father).
+                full = ([c for c in matches
+                         if all(t in c["text"].lower() for t in named)]
+                        or [c for c in matches
+                            if all(t in c["text"].lower() for t in core)])
+                ordered = full + [c for c in matches if c not in full]
+
+                for cand in ordered[:4]:
+                    page.goto(cand["href"], wait_until="domcontentloaded",
+                              timeout=45000)
+                    page.wait_for_timeout(2500)
+                    got = _read_player_page(page, name, slug)
+                    if got:
+                        return got
         finally:
             browser.close()
     return None, None
@@ -238,6 +323,8 @@ def gather_athlete_research(name: str | None, sport: str | None = None,
         out["wiki_text"], out["wiki_url"] = wiki_lookup(name, sport)
     except Exception as exc:  # noqa: BLE001 - research must never break extraction
         logger.warning("Wikipedia lookup failed for %s: %s", name, exc)
+    if not out["wiki_text"]:
+        logger.info("Wikipedia lookup found no article for %s", name)
 
     try:
         out["spotrac_text"], out["spotrac_url"] = spotrac_lookup(name, league, sport)
@@ -250,6 +337,12 @@ def gather_athlete_research(name: str | None, sport: str | None = None,
         except Exception as exc2:  # noqa: BLE001
             logger.warning("Spotrac fresh-process lookup also failed for %s: %s",
                            name, exc2)
+    # A clean no-result is as load-bearing as a crash — it silently demotes
+    # the salary check to the documents (the backup), so say it in the log.
+    if not out["spotrac_text"]:
+        logger.warning("Spotrac lookup found no player page for %s — the "
+                       "guaranteed-salary check falls back to the documents",
+                       name)
 
     return out
 
