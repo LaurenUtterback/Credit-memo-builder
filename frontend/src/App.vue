@@ -46,6 +46,10 @@ const terms = reactive({
   ssn: '', dl: '', agent: '',
   loan: null, rate: null, fee: null, salary: null, contract_remaining: null,
   fund: '', mat: '', loan_type: 'New Loan',
+  // College athlete (revenue share / NIL): swaps the memo's Section IV FAQ and
+  // "Professional" phrasing to college language. Underwriter-set only — the
+  // extraction never touches it.
+  is_college: false,
 })
 
 const memoReady = ref(false)
@@ -387,6 +391,16 @@ async function exportWord() {
     <!-- Step 2: confirm terms -->
     <section class="card">
       <h2><span class="step">2</span> Confirm deal terms</h2>
+      <label class="chk">
+        <input type="checkbox" v-model="terms.is_college" />
+        College athlete (revenue share / NIL)
+      </label>
+      <p v-if="terms.is_college" class="hint college-note">
+        🎓 College mode: the memo's Section IV risk FAQ swaps to college language —
+        revenue-share payor risk (no league backstop), NIL counterparty risk, and a
+        transfer / eligibility item — and the memo reads "Collegiate", not "Professional".
+        Everything else (salary basis, LTC, cash flow) is unchanged.
+      </p>
       <div class="grid">
         <label>Borrower name <input v-model="terms.name" /></label>
         <label>Team <input v-model="terms.team" /></label>
@@ -571,6 +585,9 @@ body { margin: 0; background: #eceae3; font-family: system-ui, sans-serif; color
 .card h2 { font-size: 14px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
 .step { background: var(--navy); color: #fff; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; }
 .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.chk { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: #1a1a1a; margin-bottom: 10px; }
+.chk input { width: auto; }
+.college-note { margin: -4px 0 10px; }
 label { display: flex; flex-direction: column; font-size: 12px; gap: 4px; color: #555; }
 input, select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; background: #fff; }
 .rf-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }

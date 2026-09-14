@@ -224,6 +224,11 @@ class DealTerms(BaseModel):
     fund: Optional[date] = None       # funding date
     mat: Optional[date] = None        # maturity date
     loan_type: str = "New Loan"
+    is_college: bool = False          # college athlete (revenue share / NIL):
+                                      # Section IV's FAQ and the "Professional"
+                                      # phrasing swap to college language.
+                                      # Set only by the underwriter, never by
+                                      # extraction.
 
 
 class MemoRequest(BaseModel):

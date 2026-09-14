@@ -1275,6 +1275,84 @@ def test_render_html_contains_key_figures(alvarado):
     assert "general business purposes" not in html
 
 
+# --- College-athlete mode (rule 20 — Lauren, 2026-09-14) --------------------
+# terms.is_college swaps Section IV's FAQ and the "Professional" phrasing for
+# college language. The pro contract-risk bullets ("no professional team has
+# ever defaulted", the league backstop) are NOT true of a college payor —
+# NIL collectives have missed payments and no governing body stands behind a
+# school's revenue-share obligations — so college mode replaces them rather
+# than restating them with "school" swapped in.
+
+def _college_terms(**over):
+    base = dict(name="Test Borrower", team="State University", league="NCAA",
+                sport="basketball", loan=500_000, salary=2_000_000,
+                is_college=True)
+    base.update(over)
+    return DealTerms(**base)
+
+
+def test_memo_defaults_to_the_professional_faq():
+    terms = DealTerms(name="Test Borrower", team="Test Team", league="NBA",
+                      sport="basketball", loan=500_000, salary=2_000_000)
+    html = memo_service.render_html(terms, Extraction(), [])
+    assert "No professional team has ever defaulted" in html
+    assert "The respective League can step in" in html
+    assert "injured reserve" in html
+    assert "Professional basketball player" in html
+    assert "Team / Employer" in html
+    assert "League contract receivable" in html
+    # none of the college language leaks into a professional memo
+    assert "House v. NCAA" not in html
+    assert "loses eligibility" not in html
+    assert "Collegiate" not in html
+
+
+def test_college_mode_swaps_the_contract_risk_faq():
+    html = memo_service.render_html(_college_terms(), Extraction(), [])
+    # The pro claims are gone — neither is true of a college payor...
+    assert "No professional team has ever defaulted" not in html
+    assert "The respective League can step in" not in html
+    assert "the Borrower's employer cannot fulfill" not in html
+    # ...replaced by the honest college block, naming the payor:
+    assert "the payor of the Borrower's compensation" in html
+    assert "direct contractual obligation of State University" in html
+    assert "House v. NCAA settlement (effective July 2025)" in html
+    assert "no league-level backstop" in html
+    assert "nonpayment disputes involving NIL collectives have occurred" in html
+
+
+def test_college_mode_reads_college_throughout():
+    html = memo_service.render_html(_college_terms(), Extraction(), [])
+    # Sections I and V (fallback narrative) + Section XI's primary source
+    assert "Collegiate basketball player" in html
+    assert "Professional basketball player" not in html
+    assert "Professional contract salary." not in html
+    assert "revenue-sharing / NIL agreements" in html
+    # page-2 header label — a school is never called an employer
+    assert "School / Program" in html
+    assert "Team / Employer" not in html
+    # Section III collateral drops the word "League"
+    assert "League contract receivable" not in html
+    assert "Contract receivable — UCC-1 filing" in html
+    # suspension and injury items swap; transfer/eligibility item is added
+    assert "suspended by the program, the conference, or the NCAA" in html
+    assert "injured reserve" not in html
+    assert "transfers, is removed from the roster, or loses eligibility" in html
+    assert "condition payment on continued enrollment" in html
+    # the over-leverage FAQ is payor-agnostic and stays either way
+    assert "What if the player over-leverages" in html
+
+
+def test_college_injury_faq_still_follows_the_ddd_rule():
+    # rule 19 is mode-independent: the assigned-policy bullet prints only when
+    # the documents' disbursement carries the premium line.
+    with_ddd = memo_service.render_html(
+        _college_terms(), Extraction(uses_of_funds=_uof("DDD insurance")), [])
+    without = memo_service.render_html(_college_terms(), Extraction(), [])
+    assert "disability insurance policy naming only the Lender" in with_ddd
+    assert "disability insurance policy" not in without
+
+
 # --- Word export footer ----------------------------------------------------
 
 def test_word_export_has_repeating_page_footer(alvarado):

@@ -228,6 +228,30 @@ never silently.
     the `test_ddd_*` / `test_memo_*_ddd_*` / `test_memo_reads_no_insurance_*`
     / `test_compliance_ddd_row_reads_none_in_place_without_the_policy` tests.
 
+20. COLLEGE-ATHLETE MODE (Lauren, 2026-09-14). `DealTerms.is_college` — a
+    checkbox at the top of the memo tab's Step 2 ("College athlete (revenue
+    share / NIL)"), default off, never set by extraction — swaps the memo's
+    pro-league language for college language. Section IV's FAQ: the suspension
+    item names the program / conference / NCAA; the contract-risk item DROPS
+    the "no professional team has ever defaulted" and league-backstop bullets
+    (neither is true of a college payor — NIL collectives have missed
+    payments, and no governing body stands behind a school's revenue-share
+    obligations) in favor of the House-settlement revenue-share framing
+    (naming {{ team }} as the payor), the no-league-backstop statement, and
+    NIL counterparty risk; a transfer / roster / eligibility item is ADDED
+    (payment conditionality is the real college contract risk); the injury
+    item stops citing injured reserve and defers to the agreement's own terms
+    (its has_ddd bullet still follows rule 19). Elsewhere: "Professional
+    <sport> player" reads "Collegiate" (Section I and the Section V fallback
+    narrative in memo.py), Section XI's primary source reads "Compensation
+    under the Borrower's revenue-sharing / NIL agreements.", the page-2
+    header label reads "School / Program" instead of "Team / Employer"
+    (athlete employment status is litigated — never call the school an
+    employer), and Section III's collateral cell drops the word "League".
+    Everything else — coversheet, guarantee assertions, salary basis, LTC,
+    cash flow — is UNCHANGED in college mode. Locked by the
+    `test_college_*` tests and `test_memo_defaults_to_the_professional_faq`.
+
 The Alvarado reference deal: $12,267,600 assets, $10,373,361 total liabilities,
 $1,894,239 net worth, facility (incl. interest) $2,703,754, LTC 27.8%.
 

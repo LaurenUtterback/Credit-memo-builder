@@ -539,7 +539,8 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "interest_money": _money(amort_for_tpl["interest"]),
         "ltc": f"{ltc:.1f}",
         "sponsor_text": (ed.sponsorship_narrative if ed and ed.sponsorship_narrative
-                         else f"{terms.name or '[Borrower Name]'} is a Professional "
+                         else f"{terms.name or '[Borrower Name]'} is a "
+                              f"{'Collegiate' if terms.is_college else 'Professional'} "
                               f"{sport or '[sport]'} player for the "
                               f"{terms.team or '[Team Name]'} of the {terms.league or '[League]'}."),
         # Rule 15: when the PFS was rolled forward, the drafted explanation is
@@ -548,6 +549,9 @@ def render_html(terms: DealTerms, ed: Extraction | None, filenames: list[str] | 
         "compliance_html": _compliance_rows_html(compliance["rows"]),
         "exceptions_html": _exceptions_html(compliance),
         "has_ddd": has_ddd,
+        # Rule 20: college mode swaps Section IV's FAQ and the "Professional"
+        # phrasing for college language. Underwriter-set only.
+        "is_college": bool(terms.is_college),
         # Section VII (Contract Analysis) only. Section V (Project Sponsorship)
         # deliberately does NOT show the contract notes — Lauren, 2026-07-06.
         "contract_notes": ed.contract_notes if ed else "",
