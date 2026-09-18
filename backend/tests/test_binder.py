@@ -19,6 +19,7 @@ from pypdf import PdfReader, PdfWriter
 from app import binder
 from app import binder_extraction
 from app.binder_models import BinderDoc, BinderInfo, BinderPart
+from app.models import UploadedDoc
 
 
 def _pdf_b64(pages: int, width: float = 612) -> str:
@@ -165,10 +166,120 @@ def test_organize_orders_sections_and_merges_categories():
         "Promissory Note", "Loan and Security Agreement", "UCC",
         "Wire Confirmation", "Insurance Documents"]
     lsa = sections[1].parts
-    assert [(p.page_from, p.page_to) for p in lsa] == [(4, 7), (8, 9), (14, 15)]
+    # contiguous ranges of the same file coalesce (4-7 + 8-9 -> 4-9)
+    assert [(p.page_from, p.page_to) for p in lsa] == [(4, 9), (14, 15)]
     ins = sections[-1].parts
     assert [(p.file_index, p.page_from, p.page_to) for p in ins] == [(2, 1, 4), (3, 1, 2)]
     assert notes == []  # every page accounted for (cover dropped but counted)
+
+
+def test_organize_drops_duplicates_and_never_repeats_a_page():
+    entries = [
+        {"file_index": 1, "first_page": 1, "last_page": 4, "category": "note"},
+        # overlaps the note -> trimmed to the pages nothing else claimed (5)
+        {"file_index": 1, "first_page": 3, "last_page": 5, "category": "settlement"},
+        # entirely inside pages already claimed -> skipped, not doubled
+        {"file_index": 1, "first_page": 2, "last_page": 3, "category": "ucc"},
+        # repeats a document uploaded separately -> left out of the binder
+        {"file_index": 1, "first_page": 6, "last_page": 8, "category": "duplicate"},
+        {"file_index": 2, "first_page": 1, "last_page": 3, "category": "insurance"},
+    ]
+    sections, notes = binder_extraction._organize(entries, [8, 3])
+    assert [s.title for s in sections] == [
+        "Promissory Note", "Memo of Settlement", "Insurance Documents"]
+    assert [(p.page_from, p.page_to) for p in sections[1].parts] == [(5, 5)]
+    # every page of file 1 is accounted for: claimed once, duplicate, or trimmed
+    assert not any("were not assigned" in n for n in notes)
+    assert any("duplicate" in n for n in notes)
+    assert any("Trimmed file 1 p.3-5" in n for n in notes)
+    assert any("Skipped file 1 p.2-3" in n for n in notes)
+
+
+def test_sort_stamps_every_page_of_the_classification_copy():
+    docs = [
+        UploadedDoc(filename="pkg.pdf", mime="application/pdf", b64=_pdf_b64(3)),
+        UploadedDoc(filename="ins.pdf", mime="application/pdf", b64=_pdf_b64(2)),
+    ]
+    counts = binder_extraction._page_counts(docs)
+    stamped = binder_extraction._stamped_docs(docs, counts)
+    r1 = PdfReader(io.BytesIO(base64.b64decode(stamped[0].b64)))
+    assert len(r1.pages) == 3
+    assert "FILE 1 - PAGE 2 / 3" in r1.pages[1].extract_text()
+    r2 = PdfReader(io.BytesIO(base64.b64decode(stamped[1].b64)))
+    assert "FILE 2 - PAGE 1 / 2" in r2.pages[0].extract_text()
+    # the stamped copies are new documents; the binder merges the originals
+    assert stamped[0].b64 != docs[0].b64
+
+
+def test_sort_prompt_reads_pages_not_patterns():
+    body = binder_extraction.SORT_PROMPT_BODY
+    assert "STAMPED" in body                      # ranges come from the stamps
+    assert '"duplicate"' in body                  # repeated documents drop out
+    assert "PAGE x OF y" in body                  # printed-footer skips reported
+    assert "CLASSIFY EACH PAGE BY WHAT IS PRINTED ON IT" in body
+
+
+def test_audit_selects_cover_pages_and_span_edges():
+    entries = [
+        {"file_index": 1, "first_page": 1, "last_page": 2, "category": "package_cover"},
+        {"file_index": 1, "first_page": 3, "last_page": 7, "category": "lsa"},
+        {"file_index": 2, "first_page": 1, "last_page": 3, "category": "duplicate"},
+        {"file_index": 9, "first_page": 1, "last_page": 1, "category": "ucc"},
+    ]
+    pages = binder_extraction._audit_page_selection(entries, [7, 3])
+    # covers page by page, spans by their edges; duplicates and bad files skipped
+    assert pages == [(1, 1), (1, 2), (1, 3), (1, 7)]
+
+
+def test_audit_corrections_reclaim_misfiled_boundary_pages():
+    # The real-world failure shape: a scan missing one page broke the
+    # title-sheet rhythm, so pass 1 swallowed the next document's title sheet
+    # into the LSA span and dropped the Guaranty's first page as a title sheet.
+    entries = [
+        {"file_index": 1, "first_page": 1, "last_page": 11, "category": "lsa"},
+        {"file_index": 1, "first_page": 12, "last_page": 12, "category": "package_cover"},
+        {"file_index": 1, "first_page": 13, "last_page": 14, "category": "guaranty"},
+    ]
+    audited = [
+        {"file_index": 1, "page": 11, "category": "package_cover"},  # title sheet
+        {"file_index": 1, "page": 12, "category": "guaranty"},       # body page 1
+        {"file_index": 1, "page": 1, "category": "lsa"},             # agrees: no-op
+        {"file_index": 1, "page": 12, "category": "note"},           # dup verdict ignored
+        {"file_index": 1, "page": 12, "category": "bogus"},          # unknown ignored
+        # content-vs-content disagreement: pass 1 saw the whole file and keeps
+        # the call — a lone page cannot attribute itself to a document
+        {"file_index": 1, "page": 13, "category": "settlement"},
+    ]
+    fixed, corrected = binder_extraction._apply_audit(audited=audited,
+                                                      entries=entries,
+                                                      page_counts=[14])
+    assert corrected == 2
+    sections, notes = binder_extraction._organize(fixed, [14])
+    # one LSA section: body trimmed to 1-10, guaranty (12-14) filed under it,
+    # and the misread title sheet (11) dropped
+    assert [s.title for s in sections] == ["Loan and Security Agreement"]
+    assert [(p.page_from, p.page_to) for p in sections[0].parts] == [(1, 10), (12, 14)]
+    assert not any("were not assigned" in n for n in notes)
+
+
+def test_sort_survives_a_failed_audit(monkeypatch):
+    calls = []
+
+    def fake_ask(docs, prompt, max_tokens):
+        calls.append(prompt)
+        if len(calls) == 1:   # pass 1: the ranges
+            return {"documents": [
+                {"file_index": 1, "first_page": 1, "last_page": 1, "category": "package_cover"},
+                {"file_index": 1, "first_page": 2, "last_page": 3, "category": "note"},
+            ], "notes": None}
+        raise RuntimeError("audit call went down")
+
+    monkeypatch.setattr(binder_extraction, "_ask_claude", fake_ask)
+    docs = [UploadedDoc(filename="pkg.pdf", mime="application/pdf", b64=_pdf_b64(3))]
+    result = binder_extraction.sort_documents(docs)
+    assert len(calls) == 2                       # the audit ran and failed
+    assert [s.title for s in result.sections] == ["Promissory Note"]
+    assert "double-check could not run" in result.notes
 
 
 def test_organize_reports_unassigned_pages_and_bad_entries():
