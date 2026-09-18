@@ -170,7 +170,9 @@ def test_organize_orders_sections_and_merges_categories():
     assert [(p.page_from, p.page_to) for p in lsa] == [(4, 9), (14, 15)]
     ins = sections[-1].parts
     assert [(p.file_index, p.page_from, p.page_to) for p in ins] == [(2, 1, 4), (3, 1, 2)]
-    assert notes == []  # every page accounted for (cover dropped but counted)
+    # every page accounted for; the dropped cover is CONFIRMED, never silent
+    assert notes == ["Removed 1 cover/title page(s) from the uploads — the binder "
+                     "adds its own title page in front of each document."]
 
 
 def test_organize_drops_duplicates_and_never_repeats_a_page():

@@ -115,7 +115,7 @@ Rules:
 - CLASSIFY EACH PAGE BY WHAT IS PRINTED ON IT, never by an expected pattern. These are scans of a signed set: a page can be missing (double feed) or scanned twice, so the usual rhythm (cover, title sheet, document, title sheet, document, ...) CAN BREAK. A title sheet is a nearly blank page showing only a document's name (possibly with the borrower's name, a logo, or a kicker line). A document's own pages carry body text, tables, or signature blocks. Never call a page a title sheet because one is "due" — look at the page.
 - South River's generated packages also print their own footer "PAGE x OF y" on every package page. If those printed numbers skip or repeat between consecutive scanned pages (e.g. PAGE 22 then PAGE 24), the scan is missing or repeating a package page: say exactly that in notes (e.g. "the printed footer skips from 22 to 24 — package page 23 is missing from the scan").
 - category must be one of:
-  "package_cover" — the closing package's own overall cover/summary page and its document-index pages, AND every standalone title/cover sheet: a page that is mostly blank and shows only a document's name (possibly with the borrower's name, a logo, or a kicker line) announcing the document that follows. A title sheet is ALWAYS its own "package_cover" entry — NEVER included in the following document's span, even though it belongs to that document — because the binder adds its own title pages and keeping them would print two covers per section.
+  "package_cover" — the closing package's own overall cover/summary page and its document-index pages, AND every standalone title/cover sheet: a page that is mostly blank and shows only a document's name (possibly with the borrower's name, a logo, or a kicker line) announcing the document that follows. A title sheet is ALWAYS its own "package_cover" entry — NEVER included in the following document's span, even though it belongs to that document — because the binder adds its own title pages and keeping them would print two covers per section. This applies equally when a file holds a SINGLE document whose first page is such a cover/title sheet: that first page is "package_cover" too.
   "affidavit" — Business Entity Affidavit (sworn statement).
   "note" — Promissory Note.
   "repayment_schedule" — the Note's repayment/payment schedule (Exhibit A, "Loan Repayments by Month"). Treat it as its OWN document even though it is the Note's exhibit — the binder format separates them.
@@ -349,6 +349,7 @@ def _organize(entries: list[dict], page_counts: list[int]) -> tuple[list[SortSec
     # ONE section each (an LSA reported as body + exhibit stays one section)
     others: list[tuple] = []                     # ((file, first), section)
     insurance_parts: list[SortPart] = []
+    cover_pages_dropped = 0                      # confirmed to the user below
 
     for e in entries:
         try:
@@ -376,6 +377,8 @@ def _organize(entries: list[dict], page_counts: list[int]) -> tuple[list[SortSec
             if cat == "duplicate":
                 notes.append(f"Left out file {fi} p.{first}-{last} — a duplicate "
                              "copy of a document already in the binder.")
+            else:
+                cover_pages_dropped += last - first + 1
             continue
         # No page may reach the binder twice: trim away pages another section
         # already claimed (the model does return overlaps despite the prompt).
@@ -414,6 +417,11 @@ def _organize(entries: list[dict], page_counts: list[int]) -> tuple[list[SortSec
             else:
                 merged.append(p)
         return merged
+
+    if cover_pages_dropped:
+        notes.insert(0, f"Removed {cover_pages_dropped} cover/title page(s) from "
+                        "the uploads — the binder adds its own title page in "
+                        "front of each document.")
 
     sections = []
     for cat, title in _CATEGORY_ORDER:

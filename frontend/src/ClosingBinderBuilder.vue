@@ -213,7 +213,7 @@ function download() {
   <section class="card">
     <h2><span class="step">2</span> Add the executed documents (PDF)</h2>
     <input type="file" multiple accept="application/pdf,.pdf" @change="onFiles" />
-    <p class="hint">Drop the signed closing package and the insurance documents (PDFs), then let Claude split and order the sections like the standard binder — or add files one per section and arrange them yourself.</p>
+    <p class="hint">Drop the signed closing package and the insurance documents (PDFs), then let Claude split and order the sections like the standard binder — the sort also removes the package's cover/index and every document's own cover/title sheet, since the binder adds its own title pages. Files arranged by hand (without sorting) go into the binder unchanged, cover pages included.</p>
     <p v-if="notice" class="status err">⚠ {{ notice }}</p>
     <button type="button" :disabled="!docs.length || sorting" @click="sortDocs">
       {{ sorting ? 'Sorting…' : '✨ Sort & organize with Claude' }}
