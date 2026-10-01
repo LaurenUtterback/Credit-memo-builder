@@ -91,12 +91,29 @@ def _is_suffix(token: str) -> bool:
     return token.rstrip(".").lower() in _SUFFIX_TOKENS
 
 
-def _core_tokens(name: str) -> list[str]:
-    """The lowercased tokens that identify the athlete — middle initials and
+def _core_parts(name: str) -> list[str]:
+    """The tokens that identify the athlete, AS WRITTEN — middle initials and
     generational suffixes dropped, so the last element is the real surname."""
-    tokens = name.lower().split()
+    tokens = name.split()
     core = [t for t in tokens if not _is_initial(t) and not _is_suffix(t)]
     return core or tokens
+
+
+def _core_tokens(name: str) -> list[str]:
+    """_core_parts, lowercased for matching."""
+    return [t.lower() for t in _core_parts(name)]
+
+
+def _surname_tokens(name: str) -> list[str]:
+    """Every core token after the given name, lowercased and unpunctuated — the
+    candidate surnames a search result may be matched on.
+
+    A compound surname has two ("rivas", "delgado" for "Mateo Rivas Delgado"), and
+    the sports world indexes the athlete under the FIRST one, so matching the
+    last token alone would reject the very page we are looking for.
+    """
+    core = [t.rstrip(".") for t in _core_tokens(name)]
+    return core[1:] or core
 
 
 def _search_names(name: str) -> list[str]:
@@ -107,13 +124,24 @@ def _search_names(name: str) -> list[str]:
     turned both searches into zero results on a real deal (2026-09-02) and
     the salary check silently fell back to the documents. Variants: as
     extracted, without middle initials, then also without the suffix.
+
+    A compound surname gets one more. The ID — and so, since 2026-10-01, the
+    extracted name — carries both surnames ("Mateo Rivas Delgado") while Spotrac
+    and Wikipedia index the given name plus the FIRST one, so the trailing
+    surname comes off last. Dropping the first surname instead ("Mateo Delgado")
+    is deliberately NOT tried: strangers really are named that, and the
+    league check would wave one of them through as the borrower.
     """
     name = " ".join(name.split())
     tokens = name.split()
     no_initials = [t for t in tokens if not _is_initial(t)]
     no_suffix = [t for t in no_initials if not _is_suffix(t)]
+    core = _core_parts(name)
+    variants = [name, " ".join(no_initials), " ".join(no_suffix)]
+    if len(core) >= 3:
+        variants.append(" ".join(core[:-1]))
     out: list[str] = []
-    for variant in (name, " ".join(no_initials), " ".join(no_suffix)):
+    for variant in variants:
         if variant and variant not in out:
             out.append(variant)
     return out
@@ -167,7 +195,10 @@ def wiki_lookup(name: str, sport: str | None) -> tuple[str | None, str | None]:
         )
         search.raise_for_status()
         hits = search.json().get("query", {}).get("search", [])
-        strong, weak = _pick_wiki_title(hits, name)
+        # Judged against the QUERY, not the extracted name: the compound-
+        # surname variant ("Mateo Rivas") is searched precisely because the
+        # article never carries the second surname (Lauren, 2026-10-01).
+        strong, weak = _pick_wiki_title(hits, query)
         if strong:
             title = strong
             break
@@ -207,11 +238,16 @@ def _read_player_page(page, name: str,
     text = page.inner_text("body")
     # Skip the site chrome (nav / trending lists) at the top of the body; the
     # player content starts at their name or the "Contract Details" tab strip.
-    # The page prints the COMMON name, so find the core name (no middle
-    # initial / suffix), never the extracted legal one.
+    # The page prints the COMMON name, so look for the core name (no middle
+    # initial / suffix) and, for a compound surname, the given name plus the
+    # first surname — never the extracted legal name as written.
     lowered = text.lower()
-    start = max(lowered.find(" ".join(_core_tokens(name))),
-                lowered.find("contract details"))
+    core = _core_tokens(name)
+    forms = [" ".join(core)]
+    if len(core) >= 3:
+        forms.append(" ".join(core[:-1]))
+    start = max([lowered.find(f) for f in forms]
+                + [lowered.find("contract details")])
     return text[max(start, 0):][:_SPOTRAC_MAX_CHARS], page.url
 
 
@@ -223,7 +259,8 @@ def spotrac_lookup(name: str, league: str | None,
     slug = _league_slug(league, sport)
     named = [t for t in name.lower().split() if not _is_initial(t)]
     core = _core_tokens(name)
-    last_name = core[-1].rstrip(".")
+    given = core[0]
+    surnames = _surname_tokens(name)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -251,19 +288,29 @@ def spotrac_lookup(name: str, league: str | None,
                     "a[href*='/player/']",
                     "els => els.map(e => ({href: e.href, text: (e.innerText || '').trim()}))",
                 )
-                # The surname is the CORE last token — a suffix like "jr."
-                # would match any junior on the results page.
-                matches = [c for c in candidates if last_name in c["text"].lower()]
-                # Full-name matches first: a sibling or teammate sharing the
+                # A result counts as the athlete only if it carries one of
+                # their surnames — never a suffix like "jr.", which would match
+                # any junior on the page, and for a compound surname either
+                # half, since the page prints only the first.
+                matches = [c for c in candidates
+                           if any(s in c["text"].lower() for s in surnames)]
+                # Fullest match first: a sibling or teammate sharing the
                 # surname (e.g. Luke Hughes vs Jack Hughes, both NJ Devils) can
                 # otherwise outrank the borrower in Spotrac's result order and
                 # would pass the league check below. Suffix-carrying matches
-                # outrank core-name ones (Joey Porter Jr. vs his father).
-                full = ([c for c in matches
-                         if all(t in c["text"].lower() for t in named)]
-                        or [c for c in matches
-                            if all(t in c["text"].lower() for t in core)])
-                ordered = full + [c for c in matches if c not in full]
+                # outrank core-name ones (Joey Porter Jr. vs his father), and a
+                # result naming the athlete's GIVEN name outranks a stranger
+                # who merely shares a surname ("Mateo Rivas" over "A. Delgado").
+                ordered: list[dict] = []
+                for tier in ([c for c in matches
+                              if all(t in c["text"].lower() for t in named)],
+                             [c for c in matches
+                              if all(t in c["text"].lower() for t in core)],
+                             [c for c in matches if given in c["text"].lower()],
+                             matches):
+                    for cand in tier:
+                        if cand not in ordered:
+                            ordered.append(cand)
 
                 for cand in ordered[:4]:
                     page.goto(cand["href"], wait_until="domcontentloaded",

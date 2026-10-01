@@ -229,11 +229,49 @@ def _settlement(terms: LoanDocTerms) -> list[dict]:
     return rows
 
 
-def _split_name(name: str) -> tuple[str, str]:
-    parts = (name or "").strip().split()
-    if len(parts) >= 2:
-        return parts[-1], " ".join(parts[:-1])   # last, first(s)
-    return name or "", ""
+# Generational suffixes belong in the UCC-1's own MIDDLE NAME / SUFFIX box,
+# never in the surname box - "Jr." as a debtor's last name is as defective a
+# filing as half a compound surname.
+_SUFFIX_TOKENS = {"jr", "sr", "ii", "iii", "iv", "v"}
+
+
+def _is_suffix(token: str) -> bool:
+    return token.rstrip(".,").lower() in _SUFFIX_TOKENS
+
+
+def _split_name(name: str, surname: str = "") -> tuple[str, str, str]:
+    """(last, first, middle/suffix) for the UCC-1 debtor name boxes.
+
+    UCC-1 sufficiency turns on the debtor's name as their driver's license
+    shows it, so the surname has to go in box 1b WHOLE: a borrower whose
+    license reads RIVAS DELGADO / MATEO is filed under "Rivas Delgado", never
+    under "Delgado" with "Mateo Rivas" as the first name (Lauren, 2026-10-01).
+    Nothing in the name itself says where a compound surname begins, so
+    `surname` - the ID's own surname field, read by the extraction and
+    editable on the tab - decides when it is known. Without it the last word
+    is the surname, as before; a generational suffix moves to its own box
+    either way.
+    """
+    tokens = (name or "").strip().split()
+    if not tokens:
+        return "", "", ""
+    suffixes = [t for t in tokens if _is_suffix(t)]
+    rest = [t for t in tokens if not _is_suffix(t)]
+    surname_tokens = (surname or "").strip().split()
+    if surname_tokens:
+        last = " ".join(surname_tokens)
+        # Take the surname off the end of the full name, leaving the given
+        # names - tolerating a name typed without it ("Mateo" / "Rivas Delgado").
+        tail = {t.lower().rstrip(".,") for t in surname_tokens}
+        given = list(rest)
+        while given and given[-1].lower().rstrip(".,") in tail:
+            given.pop()
+    elif len(rest) >= 2:
+        last, given = rest[-1], rest[:-1]
+    else:
+        last, given = (rest[0] if rest else ""), []
+    middle = " ".join(given[1:] + suffixes)
+    return last, (given[0] if given else ""), middle
 
 
 # Spelled-out league names for the no-team-contract wording ("the team that
@@ -258,7 +296,8 @@ def render_html(terms: LoanDocTerms, include: LoanDocsInclude) -> str:
         f"{terms.league} Professional Contract" if terms.league
         else "Professional Contract")
 
-    last, first = _split_name(terms.borrower_name)
+    last, first, middle_suffix = _split_name(terms.borrower_name,
+                                             terms.borrower_surname)
     city_state_zip = ", ".join(x for x in [terms.borrower_city] if x)
     tail = " ".join(x for x in [terms.borrower_state_abbr, terms.borrower_zip] if x)
     city_state_zip = ", ".join(x for x in [city_state_zip, tail] if x) or "____________"
@@ -279,6 +318,8 @@ def render_html(terms: LoanDocTerms, include: LoanDocsInclude) -> str:
         "borrower_name": terms.borrower_name or "____________________",
         "borrower_first_name": first,
         "borrower_last_name": last,
+        # The UCC-1 cell keeps its height when there is no middle name/suffix.
+        "borrower_middle_suffix": middle_suffix or "&nbsp;",
         "borrower_street": terms.borrower_street or "____________________",
         "borrower_city": terms.borrower_city or "________",
         "borrower_state_abbr": terms.borrower_state_abbr or "____",

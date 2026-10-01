@@ -18,6 +18,7 @@ from .pa_models import PAExtraction
 # Reuse the exact, proven auth pieces from the credit-memo extraction.
 from .doc_blocks import build_document_blocks
 from .extraction import (
+    LEGAL_NAME_RULE,
     usage_token, build_client, create_with_retry, log_request_manifest,
     check_request_size, describe_api_error, parse_json_reply,
     _OAUTH_BETA_HEADER, _CLAUDE_CODE_SYSTEM,
@@ -45,7 +46,9 @@ Rules:
 - The PARTICIPATION-SPECIFIC terms are usually set by South River separately and are OFTEN NOT in the borrower's loan documents. Only fill them if a document (e.g. a participation term sheet) explicitly states them; otherwise leave them 0 / null: participant_name, participation_percentage (participant's % of the loan), participant_loan_amount (the participant's dollar share / purchase price), late_fee_share_pct (participant's share of late fees), servicing_fee_pct, participant_signatory_name, participant_signatory_title.
 - participant_name: only set if a participant OTHER than the default is clearly named in the documents; otherwise null.
 - notes: one or two short sentences flagging anything ambiguous, conflicting, or worth the analyst's attention (e.g. multiple candidate dates, rate expressed as a range). Keep it brief; null if nothing notable.
-- Do not invent values. If a figure is not in the documents, return 0 or null and (if relevant) mention it in notes."""
+- Do not invent values. If a figure is not in the documents, return 0 or null and (if relevant) mention it in notes.
+
+""" + LEGAL_NAME_RULE
 
 
 def extract_documents(docs: list[UploadedDoc]) -> PAExtraction:

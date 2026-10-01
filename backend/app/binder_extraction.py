@@ -21,6 +21,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from .models import UploadedDoc
+from .extraction import LEGAL_NAME_RULE
 from .loandocs_extraction import _ask_claude
 
 
@@ -46,7 +47,9 @@ Rules:
 - loan_amount: the loan / proposed facility principal as a plain number with no "$" or commas (e.g. 785000).
 - loan_number: the loan or account number if shown, digits as a string; many documents omit it.
 - closing_date: the loan's closing date, formatted "YYYY-MM-DD". Prefer an explicitly stated Closing Date (the closing documents' cover or dating clauses); the date the documents were executed or a credit memo's proposed funding date is acceptable — say which you used in notes. Null if no date is stated; never guess.
-- notes: one or two short sentences flagging anything missing, ambiguous, or conflicting (e.g. "No loan number in the documents", "Closing date taken from the memo's proposed funding date"). Null if nothing notable."""
+- notes: one or two short sentences flagging anything missing, ambiguous, or conflicting (e.g. "No loan number in the documents", "Closing date taken from the memo's proposed funding date"). Null if nothing notable.
+
+""" + LEGAL_NAME_RULE
 
 
 def extract_binder_info(docs: list[UploadedDoc]) -> BinderInfoExtraction:

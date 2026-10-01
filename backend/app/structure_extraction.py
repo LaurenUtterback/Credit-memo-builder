@@ -27,7 +27,7 @@ from .loandocs_extraction import _ask_claude, EXTRACTION_MODEL
 # usage-token auth as every other extractor.
 from .extraction import (
     build_salary_check, usage_token, build_client, create_with_retry,
-    parse_json_reply, _CLAUDE_CODE_SYSTEM,
+    parse_json_reply, LEGAL_NAME_RULE, _CLAUDE_CODE_SYSTEM,
 )
 from .research import spotrac_lookup
 
@@ -362,6 +362,8 @@ RULES — these are load-bearing:
    figure you had to interpret, a repayment source that is not the salary.
    Do not restate figures that are already in the fields above, and do not
    summarize the deal.
+
+10. BORROWER_NAME. """ + LEGAL_NAME_RULE + """
 """
 
 

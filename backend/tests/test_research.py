@@ -9,7 +9,7 @@ that helper's league check and chrome-trimming.
 """
 
 from app.research import (_core_tokens, _pick_wiki_title, _read_player_page,
-                          _search_names, _SPOTRAC_MAX_CHARS)
+                          _search_names, _surname_tokens, _SPOTRAC_MAX_CHARS)
 
 
 class _FakePage:
@@ -116,3 +116,51 @@ def test_player_page_trim_finds_the_common_name_for_a_legal_one():
     text, _ = _read_player_page(page, "Jalen A. Two-Rivers Jr.", "nfl")
     assert text.startswith("Jalen Two-Rivers")
     assert "Trending" not in text
+
+
+# 2026-10-01: the extracted name now carries the borrower's FULL legal name,
+# including the second surname a passport shows ("Mateo Rivas Delgado"), while
+# Spotrac and Wikipedia index the given name plus the FIRST surname. Without
+# these, every lookup on a compound-surname athlete would come back empty and
+# the salary check would silently fall back to the documents.
+
+
+def test_search_names_retries_without_the_second_surname():
+    assert _search_names("Mateo Rivas Delgado") == [
+        "Mateo Rivas Delgado",       # as extracted, from the ID
+        "Mateo Rivas",               # how the sports world indexes him
+    ]
+
+
+def test_search_names_never_drops_the_first_surname():
+    # "Mateo Delgado" would be a different person who really is named that,
+    # and the league check would wave them through as the borrower.
+    assert "Mateo Delgado" not in _search_names("Mateo Rivas Delgado")
+
+
+def test_surname_tokens_cover_both_halves_of_a_compound_surname():
+    assert _surname_tokens("Mateo Rivas Delgado") == ["rivas", "delgado"]
+    # Still never the suffix, and never the given name.
+    assert _surname_tokens("Jalen A. Two-Rivers Jr.") == ["two-rivers"]
+    assert _surname_tokens("Jalen") == ["jalen"]
+
+
+def test_player_page_trim_finds_the_common_name_for_a_compound_surname():
+    # The page prints "Mateo Rivas"; the extracted legal name carries the
+    # second surname the page never shows (no "Contract Details" marker here).
+    page = _FakePage(
+        "https://www.spotrac.com/mlb/player/_/id/0/mateo-rivas",
+        "HOME NFL NBA Trending: Some Other Player\n"
+        "Mateo Rivas\nHarbor City Mariners, Outfielder\n"
+        "2026 CAP HIT $4,772,747")
+    text, _ = _read_player_page(page, "Mateo Rivas Delgado", "mlb")
+    assert text.startswith("Mateo Rivas")
+    assert "Trending" not in text
+
+
+def test_wiki_hits_are_judged_against_the_query_that_found_them():
+    # The article is titled with the common name, so the legal name matches
+    # nothing - the point of searching the shortened variant at all.
+    hits = [{"title": "Mateo Rivas"}]
+    assert _pick_wiki_title(hits, "Mateo Rivas Delgado")[0] is None
+    assert _pick_wiki_title(hits, "Mateo Rivas")[0] == "Mateo Rivas"

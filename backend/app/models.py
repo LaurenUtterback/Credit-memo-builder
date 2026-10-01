@@ -136,6 +136,11 @@ class Extraction(BaseModel):
     so the prompt and this model must stay in sync (see extraction.py).
     """
     borrower_name: Optional[str] = None
+    # The surname exactly as a government ID prints it ("Rivas Delgado"), kept
+    # apart from the full name because the UCC-1's LAST NAME box must carry a
+    # compound surname whole - guessing the split from the name is what makes
+    # a filing defective. None when no ID was uploaded.
+    borrower_surname: Optional[str] = None
     dob: Optional[str] = None
     address: Optional[str] = None
     phone: Optional[str] = None

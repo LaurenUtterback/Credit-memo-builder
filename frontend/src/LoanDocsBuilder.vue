@@ -13,7 +13,8 @@ const props = defineProps({
 
 // --- state -----------------------------------------------------------------
 const TERM_DEFAULTS = {
-  borrower_name: '', borrower_street: '', borrower_city: '',
+  borrower_name: '', borrower_surname: '',
+  borrower_street: '', borrower_city: '',
   borrower_state_abbr: '', borrower_zip: '', borrower_state: '',
   occupation: '', use_of_proceeds: 'Business related expenses',
   loan_amount: null, interest_rate: null, origination_fee_pct: null,
@@ -128,6 +129,10 @@ function pullFromMemo() {
   const t = props.memoTerms || {}
   const ed = props.memoExtraction || {}
   if (t.name) terms.borrower_name = t.name
+  // The surname the credit memo's extraction read off the borrower's ID: the
+  // UCC-1 files a compound surname whole ("Rivas Delgado"), and the full name
+  // alone never says where one begins.
+  if (ed.borrower_surname) terms.borrower_surname = ed.borrower_surname
   if (t.team && !terms.no_team_contract) terms.team_name = t.team
   if (t.league) terms.league = t.league
   if (t.loan) terms.loan_amount = t.loan
@@ -289,6 +294,7 @@ async function extractContract() {
     if (r.contract_date) terms.contract_date = toISODate(r.contract_date)
     // the player is deal-level info — fill only if still blank
     if (r.player_name && !terms.borrower_name) terms.borrower_name = r.player_name
+    if (r.player_surname && !terms.borrower_surname) terms.borrower_surname = r.player_surname
     const got = ['team_name', 'team_street', 'team_city_state_zip', 'league',
                  'contract_title', 'contract_date'].filter((k) => r[k]).length
     contractStatus.type = got ? 'ok' : 'err'
@@ -459,6 +465,7 @@ async function exportWord() {
 
       <div class="grid">
         <label>Borrower name <input v-model="terms.borrower_name" /></label>
+        <label>Surname only (UCC-1) <input v-model="terms.borrower_surname" placeholder="e.g. Rivas Delgado" /></label>
         <label>Occupation <input v-model="terms.occupation" placeholder="Professional Baseball Player" /></label>
         <label>Street address <input v-model="terms.borrower_street" /></label>
         <label>City <input v-model="terms.borrower_city" /></label>
@@ -486,6 +493,7 @@ async function exportWord() {
         <label>Closing date <input v-model="terms.closing_date" type="date" /></label>
         <label>Maturity date <input v-model="terms.maturity_date" type="date" /></label>
       </div>
+      <p class="hint">Borrower name is the FULL legal name as the passport or driver’s license spells it — every surname and any suffix (“Mateo Rivas Delgado”). “Surname only” is the ID’s surname field on its own: it fills the UCC-1’s LAST NAME box, which must carry a compound surname whole. Leave it blank and the last word of the name is used (a Jr./III moves to the suffix box either way).</p>
 
       <h3 class="grp">Note terms</h3>
       <div class="grid">

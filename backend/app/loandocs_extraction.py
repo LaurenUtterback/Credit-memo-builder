@@ -24,7 +24,7 @@ from .doc_blocks import build_document_blocks
 from .extraction import (
     usage_token, build_client, create_with_retry, log_request_manifest,
     check_request_size, describe_api_error, parse_json_reply,
-    _OAUTH_BETA_HEADER, _CLAUDE_CODE_SYSTEM,
+    LEGAL_NAME_RULE, _OAUTH_BETA_HEADER, _CLAUDE_CODE_SYSTEM,
 )
 
 EXTRACTION_MODEL = os.environ.get("EXTRACTION_MODEL", "claude-sonnet-4-6")
@@ -34,6 +34,9 @@ class TeamContractExtraction(BaseModel):
     """What Claude pulls out of the uploaded contract / deal documents."""
 
     player_name: Optional[str] = None
+    # The ID's own surname field, when an identity document is among the
+    # uploads - it fills the UCC-1's LAST NAME box whole (see loandocs.py).
+    player_surname: Optional[str] = None
     team_name: Optional[str] = None
     team_street: Optional[str] = None
     team_city_state_zip: Optional[str] = None
@@ -49,17 +52,20 @@ Extract the TEAM and CONTRACT details below. They are used two ways: (1) the Loa
 
 Return ONLY raw JSON, no markdown, no backticks:
 
-{"player_name":null,"team_name":null,"team_street":null,"team_city_state_zip":null,"league":null,"contract_title":null,"contract_date":null,"notes":null}
+{"player_name":null,"player_surname":null,"team_name":null,"team_street":null,"team_city_state_zip":null,"league":null,"contract_title":null,"contract_date":null,"notes":null}
 
 Rules:
 - Use null for anything not stated in the documents. Do not invent values.
-- player_name: the athlete who is party to the contract.
+- player_name: the athlete who is party to the contract, named as the rule at the bottom of these instructions requires.
+- player_surname: the SURNAME ALONE, exactly as a government ID's own surname field prints it, in normal capitalization ("Rivas Delgado" for a passport whose Surname line reads "RIVAS DELGADO"; a generational suffix is NOT part of the surname). It fills the LAST NAME box of the UCC-1 financing statement, where a compound surname split at the wrong word makes the filing defective - so never guess which word of a name is the surname: null unless an identity document is among the documents.
 - team_name: the full club/team name employing the athlete, e.g. "Baltimore Orioles".
 - team_street: the street line of the club's mailing address AS STATED in the documents (e.g. "333 West Camden Street"). team_city_state_zip: the rest of that address on one line (e.g. "Baltimore, MD 21201" or "Vancouver, BC V6B 4Y8, Canada"). The letter is physically mailed there, so only use an address that appears in the documents; if none does, return null for both and say so in notes.
 - league: the league's usual abbreviation (MLB, NBA, NFL, NHL, MLS, WNBA, ...).
 - contract_title: a short legal reference for the contract, preferring the document's own title prefixed with the league when helpful — e.g. "MLB Uniform Player's Contract", "NBA Standard Player Contract", or "MLB Professional Contract" when the papers just call it a player contract. Null if you cannot tell.
 - contract_date: the date the contract was made / its "as of" date, formatted "YYYY-MM-DD". If the documents show several contract-related dates (signing date vs. effective date), prefer the "dated as of" date and mention the others in notes. Null if not stated.
-- notes: one or two short sentences flagging anything missing, ambiguous, or conflicting (e.g. "Team address not shown in the documents", "Contract is an extension dated ..."). Null if nothing notable."""
+- notes: one or two short sentences flagging anything missing, ambiguous, or conflicting (e.g. "Team address not shown in the documents", "Contract is an extension dated ..."). Null if nothing notable.
+
+""" + LEGAL_NAME_RULE
 
 
 class MemoDealExtraction(BaseModel):
@@ -88,7 +94,7 @@ MEMO_PROMPT = """You have been given a South River Capital CREDIT MEMORANDUM pre
 
 Rules:
 - Numbers must be plain numbers with no "$", commas, or "%": loan_amount 3300000; interest_rate_pct 12.5; origination_fee_pct 3 means 3%. Use 0 when a number is not stated. Use null for missing strings. Do not invent values.
-- borrower_name: the borrower/athlete the memo is about.
+- borrower_name: the borrower/athlete the memo is about, copied EXACTLY as the memo prints it - every surname (a compound surname such as "Rivas Delgado" is two words of one name) and any generational suffix (Jr., Sr., II, III). Never shorten the name to the one the athlete plays under.
 - The memo's "Address (Season)" line is one string — split it: borrower_street (street line), borrower_city, borrower_state_abbr (2-letter), borrower_zip. borrower_state is the state spelled out from that abbreviation (e.g. FL -> "Florida").
 - occupation: phrase it "Professional <Sport> Player" from how the memo describes the borrower (e.g. "a Professional baseball player" -> "Professional Baseball Player").
 - team_name: the team/employer named in the memo. league: the league (the memo's "Lending Area" or the league named alongside the team).

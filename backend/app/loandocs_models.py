@@ -45,6 +45,12 @@ class LoanDocsInclude(BaseModel):
 class LoanDocTerms(BaseModel):
     # Borrower
     borrower_name: str = ""
+    # The surname alone, as a government ID prints it ("Rivas Delgado"). The
+    # UCC-1's LAST NAME box must carry a compound surname whole, and nothing
+    # in the name itself says where one starts - so the ID's own surname
+    # field is captured instead of guessed. Blank falls back to the last word
+    # of the name (any suffix peeled off first). See loandocs._split_name.
+    borrower_surname: str = ""
     borrower_street: str = ""
     borrower_city: str = ""
     borrower_state_abbr: str = ""   # e.g. "FL" (UCC form cells)
